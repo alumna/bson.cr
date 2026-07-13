@@ -1,33 +1,24 @@
-<div align="center">
-  <img src="icon.svg" width="128" height="128" />
-  <h1>bson.cr</h1>
-  <h3>A pure Crystal implementation of the <a href="http://bsonspec.org">BSON specification</a>.</h3>
-  <a href="https://github.com/elbywan/bson.cr/actions/workflows/crystal.yml"><img alt="Crystal CI" src="https://github.com/elbywan/bson.cr/actions/workflows/crystal.yml/badge.svg"></a>
-  <a href="https://github.com/elbywan/bson.cr/tags"><img alt="GitHub tag (latest SemVer)" src="https://img.shields.io/github/v/tag/elbywan/bson.cr"></a>
-  <a href="https://github.com/elbywan/bson.cr/blob/master/LICENSE"><img alt="GitHub" src="https://img.shields.io/github/license/elbywan/bson.cr"></a>
-</div>
+## bson.cr  - temporary fork
 
-## Reliability
+This is a temporary fork of [github.com/elbywan/bson.cr](https://github.com/elbywan/bson.cr) in which the objective is to gradually update it to the more recent BSON specification, focusing one being compatible with MongoDB 8.0. It also aims to modernize the codebase with Crystal 1.20.x, like updating it to the new `Sync::Mutex`, among other things.
 
-This library passes the official corpus tests located in the [`mongodb/specifications`](https://github.com/mongodb/specifications) repository.
+The fork is to allow a work without concerns on retro-compatibility in the short term and to, eventually, help paving the way for a future merge at the upstream repository, with the retro-compatibility challenges tackled at a later stage.
 
-*A few [minor](https://github.com/elbywan/bson.cr/tree/master/spec/corpus) modifications have been made to the tests to comply with Crystal specifics.*
+This is an ongoign effort to also update [cryomongo](github.com/elbywan/cryomongo), temporarily forked at [github.com/alumna/cryomongo](https://github.com/alumna/cryomongo), with the objective of being available for a future upstream merge in the original repository, if and when desired by the main maintainers.
 
-## Installation
+If you don't need compatibility with recent MongoDB, then the upstream repositories mentioned above are the correct choice. The objective here is not to replace them. But to try in a safe fork to gradually update things until we achieved full compatibility, then as most retro-compatibility as possible. Then upstream merge.
 
-1. Add the dependency to your `shard.yml`:
+### Roadmap & Checklist
 
-   ```yaml
-   dependencies:
-     bson:
-       github: elbywan/bson.cr
-   ```
+Here is a proposed checklist detailing the specifications. You can use this to track our progress.
 
-2. Run `shards install`
-
-## API
-
-[Full API documentation is hosted here.](https://elbywan.github.io/bson.cr/BSON.html)
+- [x] **BSON ObjectId** (`bson-objectid/objectid.md`): Currently up-to-date with the 12-byte modern specification.
+- [x] **BSON Decimal128** (`bson-decimal128/decimal128.md`): Basic spec implemented and passing existing corpus tests. (Performance optimization deferred per `DECISIONS.md`).
+- [x] **BSON Binary UUID** (`bson-binary-uuid/uuid.md`): Subtypes `0x03` (Legacy) and `0x04` (UUID) are correctly declared and handled.
+- [ ] **BSON Binary Encrypted** (`bson-binary-encrypted/binary-encrypted.md`): Subtype `0x06` is declared in the enum, but we need to ensure full spec compliance (especially regarding Extended JSON representation).
+- [ ] **BSON Binary Vector** (`bson-binary-vector/bson-binary-vector.md`): **MISSING.** Subtype `0x09` needs to be implemented. This was introduced recently for MongoDB's vector search capabilities (float32, int8, packed_bit).
+- [ ] **BSON Corpus Sync** (`bson-corpus/`): The current `spec/corpus/*.json` files are out of date. We need to ingest the newest corpus files and patch any edge cases that fail.
+- [ ] **Crystal 1.20 Modernization**: Ensure the `shard.yml` targets newer Crystal versions, fix `Mutex` deprecations, run `crystal tool format`, and update GitHub actions for Debian/Ubuntu 24.04 runners.
 
 ## Usage
 
@@ -231,7 +222,3 @@ It works, but performance is low because it uses an intermediate String represen
 ## Contributors
 
 - [elbywan](https://github.com/elbywan) - creator and maintainer
-
-## Credit
-
-- Icon made by [Vitaly Gorbachev](https://www.flaticon.com/authors/vitaly-gorbachev) from [www.flaticon.com](https://www.flaticon.com).

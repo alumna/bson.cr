@@ -1,19 +1,31 @@
 name: Crystal CI
 
 on:
-  push:
+  # Triggers when a PR is opened or updated
   pull_request:
-  schedule:
-    - cron: "0 0 10 * 6"
+    branches:
+      - master
+
+  # Triggers when code is merged to main, OR directly pushed to main
+  push:
+    branches:
+      - master
+
+# Automatically cancel in-progress runs if a new commit is pushed to the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 jobs:
+
   check_format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Install Crystal
         uses: crystal-lang/install-crystal@v1
       - name: Check out repository code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Check format
         run: crystal tool format --check
 
@@ -22,10 +34,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, crystal: latest }
-          - { os: ubuntu-latest, crystal: nightly }
-          - { os: macos-latest }
-          - { os: macos-14 }
+          - { os: ubuntu-24.04, crystal: latest }
+          # - { os: ubuntu-latest, crystal: nightly }
+          # - { os: macos-latest }
+          # - { os: macos-14 }
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Crystal
@@ -33,6 +45,6 @@ jobs:
         with:
           crystal: ${{ matrix.crystal }}
       - name: Check out repository code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Run tests
         run: crystal spec

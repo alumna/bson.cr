@@ -4,9 +4,10 @@ version: 0.3.6
 description: |
   A pure Crystal Implementation of the BSON Specification.
 
-crystal: ">= 0.35.0, < 2.0.0"
+crystal: ">= 1.20.0"
 
 authors:
   - elbywan <elbywan@hotmail.com>
+  - paulocoghi <paulo@airsailer.io>
 
 license: MIT
