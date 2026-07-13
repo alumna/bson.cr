@@ -47,7 +47,7 @@ struct BSON
   # bson = BSON.new(io)
   # puts bson.to_json # => {"x":{"a":"b"}}
   # ```
-  def initialize(data : Bytes? = nil, validate? = false)
+  def initialize(data : Bytes? = nil, validate : Bool = false)
     if d = data
       size = data[0..4].to_unsafe.as(Pointer(Int32)).value
       Decoder.check_size! data.size, 5, size
@@ -464,7 +464,7 @@ struct BSON
 
   # ameba:disable Metrics/CyclomaticComplexity
   def to_json(builder : JSON::Builder, *, array = false)
-    block = ->{
+    block = -> {
       self.each { |(key, value, code, subtype)|
         builder.string(key) unless array
         if code == Element::Array && value.is_a? BSON
@@ -500,7 +500,7 @@ struct BSON
   end
 
   protected def to_canonical_extjson(builder : JSON::Builder, *, array = false)
-    block = ->{
+    block = -> {
       self.each { |(key, value, code, subtype)|
         builder.string(key) unless array
         if code == Element::Array && value.is_a? BSON

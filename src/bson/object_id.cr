@@ -24,7 +24,7 @@ struct BSON
     getter data : Bytes
 
     @@counter : Int32 = rand(0x1000000)
-    @@mutex = Mutex.new
+    @@mutex = Sync::Mutex.new
     # Fixed random bytes in order to have a better ordering.
     @@random_bytes : Bytes = Random.new.random_bytes(5)
 
