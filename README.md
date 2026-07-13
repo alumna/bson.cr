@@ -1,24 +1,24 @@
-## bson.cr  - temporary fork
+## bson.cr - temporary fork
 
 This is a temporary fork of [github.com/elbywan/bson.cr](https://github.com/elbywan/bson.cr) in which the objective is to gradually update it to the more recent BSON specification, focusing one being compatible with MongoDB 8.0. It also aims to modernize the codebase with Crystal 1.20.x, like updating it to the new `Sync::Mutex`, among other things.
 
 The fork is to allow a work without concerns on retro-compatibility in the short term and to, eventually, help paving the way for a future merge at the upstream repository, with the retro-compatibility challenges tackled at a later stage.
 
-This is an ongoign effort to also update [cryomongo](github.com/elbywan/cryomongo), temporarily forked at [github.com/alumna/cryomongo](https://github.com/alumna/cryomongo), with the objective of being available for a future upstream merge in the original repository, if and when desired by the main maintainers.
+This is an ongoing effort to also update [cryomongo](github.com/elbywan/cryomongo), temporarily forked at [github.com/alumna/cryomongo](https://github.com/alumna/cryomongo), with the objective of being available for a future upstream merge in the original repository, if and when desired by the main maintainers.
 
 If you don't need compatibility with recent MongoDB, then the upstream repositories mentioned above are the correct choice. The objective here is not to replace them. But to try in a safe fork to gradually update things until we achieved full compatibility, then as most retro-compatibility as possible. Then upstream merge.
 
 ### Roadmap & Checklist
 
-Here is a proposed checklist detailing the specifications. You can use this to track our progress.
+Progress on the specifications to be implemented or updated:
 
 - [x] **BSON ObjectId** (`bson-objectid/objectid.md`): Currently up-to-date with the 12-byte modern specification.
-- [x] **BSON Decimal128** (`bson-decimal128/decimal128.md`): Basic spec implemented and passing existing corpus tests. (Performance optimization deferred per `DECISIONS.md`).
+- [x] **BSON Decimal128** (`bson-decimal128/decimal128.md`): Basic spec implemented and passing existing corpus tests.
 - [x] **BSON Binary UUID** (`bson-binary-uuid/uuid.md`): Subtypes `0x03` (Legacy) and `0x04` (UUID) are correctly declared and handled.
+- [x] **BSON Binary Vector** (`bson-binary-vector/bson-binary-vector.md`): Subtype `0x09` is implemented for MongoDB's vector search capabilities (float32, int8, packed_bit).
 - [ ] **BSON Binary Encrypted** (`bson-binary-encrypted/binary-encrypted.md`): Subtype `0x06` is declared in the enum, but we need to ensure full spec compliance (especially regarding Extended JSON representation).
-- [ ] **BSON Binary Vector** (`bson-binary-vector/bson-binary-vector.md`): **MISSING.** Subtype `0x09` needs to be implemented. This was introduced recently for MongoDB's vector search capabilities (float32, int8, packed_bit).
 - [ ] **BSON Corpus Sync** (`bson-corpus/`): The current `spec/corpus/*.json` files are out of date. We need to ingest the newest corpus files and patch any edge cases that fail.
-- [ ] **Crystal 1.20 Modernization**: Ensure the `shard.yml` targets newer Crystal versions, fix `Mutex` deprecations, run `crystal tool format`, and update GitHub actions for Debian/Ubuntu 24.04 runners.
+- [x] **Crystal 1.20 Modernization**: Ensure the `shard.yml` targets newer Crystal versions, fix `Mutex` deprecations, run `crystal tool format`, and update GitHub actions for Debian/Ubuntu 24.04 runners.
 
 ## Usage
 
@@ -80,6 +80,29 @@ other_bson = BSON.new({ other: "field" })
 bson.append(other_bson)
 puts bson["other"]
 # => field
+```
+
+### Vectors
+
+```crystal
+# You can encode arrays of Float32, Float64, Int8, or Int32 into BSON Binary Vectors (Subtype 0x09)
+vector_binary = BSON::Binary.from_vector([1.5_f32, 2.0_f32, -3.2_f32])
+
+bson = BSON.new
+bson["embedding"] = vector_binary
+
+# You can also encode packed bit arrays (UInt8 arrays representing boolean bits) with optional padding
+packed_binary = BSON::Binary.from_packed_bit_vector([255_u8, 127_u8], padding: 3)
+
+# To retrieve the vector data, use `#to_vector` and the respective extractor for zero-allocation Slice(T) views
+binary = bson["embedding"].as(BSON::Binary)
+if binary.subtype.vector?
+  vector = binary.to_vector
+  if vector.dtype.float32?
+    slice = vector.as_float32
+    puts slice[0] # => 1.5
+  end
+end
 ```
 
 ### Iterate
@@ -222,3 +245,4 @@ It works, but performance is low because it uses an intermediate String represen
 ## Contributors
 
 - [elbywan](https://github.com/elbywan) - creator and maintainer
+- [paulocoghi](https://github.com/paulocoghi) - contributor
