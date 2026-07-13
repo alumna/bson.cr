@@ -16,19 +16,19 @@ This project is an active, organization-owned fork (`alumna/bson.cr`) originally
 
 ## Phases & Progress
 
-### Phase 1: Tooling, Crystal 1.20, and Binary Vector Support [In Progress]
+### Phase 1: Tooling, Crystal 1.20, and Binary Vector Support [Done]
 - [x] Create `ROADMAP.md` to define boundaries and upcoming steps.
 - [x] **Crystal 1.20 Modernization:** Update `shard.yml` dependencies, bump GitHub actions to `ubuntu-24.04`, and fix `Mutex` deprecations (now `Sync::Mutex`).
 - [x] **BSON Binary Vector (`0x09`):** Scaffold `0x09` subtype in the enum and implement specific padding/decoding logic passing `float32`, `int8`, and `packed_bit` validation tests.
 
 ### Phase 2: BSON Corpus Sync (Part A - Standard Types) [Pending]
 - **Target:** Update the out-of-date corpus test files in `spec/corpus/`.
-- **Files to Sync:** `array`, `binary`, `boolean`, `datetime`, `document`, `string`, `double`, `int32`, `int64`, `null`, etc.
+- **Files to Sync:** `array`, `binary`, `boolean`, `datetime`, `document`, `string`, `double`, `int32`, `int64`, `null`, `maxkey`, `minkey`, `symbol`, `undefined`
 - **Goal:** Replace existing JSONs. Run the spec suite, fix breakages. Address edge cases in parsing.
 
 ### Phase 3: BSON Corpus Sync (Part B - Complex Types) [Pending]
 - **Target:** Update remaining complex corpus tests.
-- **Files to Sync:** `decimal128-*.json`, `code`, `code_w_scope`, `dbref`, `regex`, `timestamp`, `oid`.
+- **Files to Sync:** `decimal128-*.json`, `code`, `code_w_scope`, `dbref`, `regex`, `timestamp`, `oid`, `top`, `multi-type`, `multi-type-deprecated`, `dbpointer`
 - **Goal:** Resolve `ignore_json_roundtrip` hacks added by the original author. Ensure `Decimal128` string parsing can handle the modern spec cases.
 
 ### Phase 4: BSON Binary Encrypted & Extended JSON Audit [Pending]

@@ -18,7 +18,11 @@ struct Time
   def to_relaxed_extjson(builder : JSON::Builder)
     builder.object {
       builder.string("$date")
-      builder.string(self.to_rfc3339(fraction_digits: 3))
+      if millisecond == 0
+        builder.string(self.to_rfc3339(fraction_digits: 0))
+      else
+        builder.string(self.to_rfc3339(fraction_digits: 3))
+      end
     }
   end
 end

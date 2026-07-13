@@ -7,8 +7,7 @@
             "description": "MinValue",
             "canonical_bson": "10000000126100000000000000008000",
             "canonical_extjson": "{\"a\" : {\"$numberLong\" : \"-9223372036854775808\"}}",
-            "relaxed_extjson": "{\"a\" : -9223372036854775808}",
-            "ignore_json_roundtrip": true
+            "relaxed_extjson": "{\"a\" : -9223372036854775808}"
         },
         {
             "description": "MaxValue",
