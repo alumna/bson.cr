@@ -49,13 +49,17 @@ struct BSON
   # ```
   def initialize(data : Bytes? = nil, validate : Bool = false)
     if d = data
-      size = data[0..4].to_unsafe.as(Pointer(Int32)).value
-      Decoder.check_size! data.size, 5, size
+      # [Performance] Read size directly from pointer avoiding a slice allocation
+      size = d.to_unsafe.as(Pointer(Int32)).value
+      Decoder.check_size! d.size, 5, size
       @data = d.clone
     else
       @data = Bytes.new(5)
       @data.to_unsafe.as(Pointer(Int32)).value = 5
     end
+
+    # [Correctness] Act upon the `validate` argument
+    validate! if validate
   end
 
   # Allocate a BSON instance from an IO
@@ -83,7 +87,8 @@ struct BSON
   def initialize(tuple : NamedTuple)
     builder = Builder.new
     tuple.each { |key, value|
-      builder["#{key}"] = value
+      # [Performance] Avoid string interpolation overhead
+      builder[key.to_s] = value
     }
     @data = builder.to_bson
   end
@@ -98,7 +103,8 @@ struct BSON
   def initialize(h : Hash)
     builder = Builder.new
     h.each { |key, value|
-      builder["#{key}"] = value
+      # [Performance] Avoid string interpolation overhead
+      builder[key.to_s] = value
     }
     @data = builder.to_bson
   end
@@ -116,7 +122,8 @@ struct BSON
   def initialize(ary : Array)
     builder = Builder.new
     ary.each_with_index { |value, index|
-      builder["#{index}"] = value
+      # [Performance] Avoid string interpolation overhead
+      builder[index.to_s] = value
     }
     @data = builder.to_bson
   end
@@ -159,7 +166,8 @@ struct BSON
   # puts bson.to_json # => {"key":"value"}
   # ```
   def []=(key : String | ::Symbol, value)
-    io = IO::Memory.new
+    # [Performance] Pre-size IO to avoid reallocations
+    io = IO::Memory.new(@data.size)
     io.write @data[4...-1]
     builder = Builder.new(io)
     if value.responds_to? :to_bson
@@ -172,7 +180,8 @@ struct BSON
 
   # Append a key/value pair and declare it as a BSON array.
   def append_array(key : String | ::Symbol, value : BSON)
-    io = IO::Memory.new
+    # [Performance] Pre-size IO to avoid reallocations
+    io = IO::Memory.new(@data.size)
     io.write @data[4...-1]
     builder = Builder.new(io)
     builder.append_array(key, value)
@@ -194,7 +203,8 @@ struct BSON
     io.write @data[4...-1]
     builder = Builder.new(io)
     args.each { |key, value|
-      builder["#{key}"] = value
+      # [Performance] Avoid string interpolation overhead
+      builder[key.to_s] = value
     }
     @data = builder.to_bson
   end
@@ -209,18 +219,19 @@ struct BSON
   # ```
   def append(other : BSON)
     size = @data.to_unsafe.as(Pointer(Int32)).value
-    io = IO::Memory.new(size)
+    # [Performance] Append raw bytes directly, avoiding field decoding/encoding overhead
+    io = IO::Memory.new(size + other.size - 5)
     io.write @data[4...-1]
+    io.write other.data[4...-1]
     builder = Builder.new(io)
-    other.each { |(key, value)|
-      builder["#{key}"] = value
-    }
     @data = builder.to_bson
   end
 
   # Clears the BSON instance.
   def clear
     @data = Bytes.new(5)
+    # [Correctness] Write the empty document size indicator
+    @data.to_unsafe.as(Pointer(Int32)).value = 5
   end
 
   # Return the element with the given key, or `nil` if the key is not present.
@@ -297,14 +308,17 @@ struct BSON
       # Element code
       code = Element.new((pointer + pos).value)
       pos += 1
-      # Field name
-      field = String.new(pointer + pos)
-      pos += field.bytesize + 1
 
-      if field == key
+      # [Performance] Compare raw string bytes via LibC to avoid allocating Strings for skipped fields
+      key_size = key.bytesize
+      if (pointer + pos + key_size).value == 0 && LibC.memcmp(pointer + pos, key.to_unsafe, key_size) == 0
+        field = String.new(pointer + pos, key_size)
+        pos += key_size + 1
         _, data = Decoder.decode_field!(pointer, pos, {code, field}, max_pos: size)
         return {data[1], true}
       else
+        # [Performance] Fast skip for non-matching fields
+        pos += LibC.strlen(pointer + pos) + 1
         pos = Decoder.skip_field(code, pointer, pos, max_pos: size)
       end
     end
@@ -369,7 +383,8 @@ struct BSON
     @pos = 4
 
     def initialize(bson : BSON)
-      @data = bson.data.clone
+      # [Performance] BSON fields are immutable during iteration, removing heap allocation clone
+      @data = bson.data
     end
 
     def next
@@ -438,9 +453,8 @@ struct BSON
   # # => Unhandled exception: Invalid BSON (overflow) (Exception)
   # ```
   def validate!
-    self.each { |(k, v)|
-      {k, v}
-    }
+    # [Performance] Avoid unnecessary tuple allocations during validation
+    self.each { }
   end
 
   # Allocate a BSON instance from a relaxed extended json representation.
@@ -464,61 +478,52 @@ struct BSON
 
   # ameba:disable Metrics/CyclomaticComplexity
   def to_json(builder : JSON::Builder, *, array = false)
-    block = -> {
-      self.each { |(key, value, code, subtype)|
-        builder.string(key) unless array
-        if code == Element::Array && value.is_a? BSON
-          value.to_json(builder, array: true)
-        elsif code == Element::Document && value.is_a? BSON
-          value.to_json(builder, array: false)
-        elsif code == Element::Binary && value.is_a? Bytes
-          value.to_canonical_extjson(builder, subtype)
-        elsif value.is_a? Int32
-          value.to_json(builder)
-        elsif value.is_a? Int64
-          value.to_json(builder)
-        elsif value.is_a? Float64
-          if value.nan? || value.infinite?
-            value.to_canonical_extjson(builder)
-          else
-            value.to_json(builder)
-          end
-        elsif value.is_a? Time && value.year >= 1970 && value.year <= 9999
-          value.to_relaxed_extjson(builder)
-        elsif value.responds_to? :to_canonical_extjson
-          value.to_canonical_extjson(builder)
-        else
-          builder.scalar(nil)
-        end
-      }
-    }
+    # [Performance] Inline the blocks to avoid Proc allocations and indirections
     if array
-      builder.array &block
+      builder.array { build_json_fields(builder, array: true, canonical: false) }
     else
-      builder.object &block
+      builder.object { build_json_fields(builder, array: false, canonical: false) }
     end
   end
 
   protected def to_canonical_extjson(builder : JSON::Builder, *, array = false)
-    block = -> {
-      self.each { |(key, value, code, subtype)|
-        builder.string(key) unless array
-        if code == Element::Array && value.is_a? BSON
-          value.to_canonical_extjson(builder, array: true)
-        elsif code == Element::Binary && value.is_a? Bytes
-          value.to_canonical_extjson(builder, subtype)
-        elsif value.responds_to? :to_canonical_extjson
+    # [Performance] Inline the blocks to avoid Proc allocations and indirections
+    if array
+      builder.array { build_json_fields(builder, array: true, canonical: true) }
+    else
+      builder.object { build_json_fields(builder, array: false, canonical: true) }
+    end
+  end
+
+  # [Simplicity] Extracted common logic to avoid code duplication
+  private def build_json_fields(builder, array, canonical)
+    self.each { |(key, value, code, subtype)|
+      builder.string(key) unless array
+
+      if code == Element::Array && value.is_a? BSON
+        canonical ? value.to_canonical_extjson(builder, array: true) : value.to_json(builder, array: true)
+      elsif !canonical && code == Element::Document && value.is_a? BSON
+        value.to_json(builder, array: false)
+      elsif code == Element::Binary && value.is_a? Bytes
+        value.to_canonical_extjson(builder, subtype)
+      elsif !canonical && value.is_a? Int32
+        value.to_json(builder)
+      elsif !canonical && value.is_a? Int64
+        value.to_json(builder)
+      elsif !canonical && value.is_a? Float64
+        if value.nan? || value.infinite?
           value.to_canonical_extjson(builder)
         else
-          builder.scalar(nil)
+          value.to_json(builder)
         end
-      }
+      elsif !canonical && value.is_a? Time && value.year >= 1970 && value.year <= 9999
+        value.to_relaxed_extjson(builder)
+      elsif value.responds_to? :to_canonical_extjson
+        value.to_canonical_extjson(builder)
+      else
+        builder.scalar(nil)
+      end
     }
-    if array
-      builder.array &block
-    else
-      builder.object &block
-    end
   end
 
   # Serialize this BSON instance into a canonical extended json representation.

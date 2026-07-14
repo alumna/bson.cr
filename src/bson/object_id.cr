@@ -48,16 +48,22 @@ struct BSON
 
     # Create a random ObjectId.
     def initialize
-      io = IO::Memory.new
-      io.write_bytes Time.utc.to_unix.to_u32, IO::ByteFormat::BigEndian
-      io.write @@random_bytes
+      # [Performance] Avoid IO::Memory and heap allocations by writing directly to a slice
+      @data = Bytes.new(12)
+
+      timestamp = Time.utc.to_unix.to_u32
+      IO::ByteFormat::BigEndian.encode(timestamp, @data[0, 4])
+
+      @@random_bytes.copy_to(@data[4, 5])
+
       counter = @@mutex.synchronize {
-        @@counter = (@@counter + 1) % 0xFFFFFF
+        # [Correctness] Use 0x1000000 to wrap correctly at 3 bytes max (16777215)
+        @@counter = (@@counter + 1) % 0x1000000
       }
-      counter_slice = Bytes.new(4)
-      IO::ByteFormat::BigEndian.encode(counter, counter_slice)
-      io.write counter_slice[1..3]
-      @data = io.to_slice
+
+      @data[9] = (counter >> 16).to_u8!
+      @data[10] = (counter >> 8).to_u8!
+      @data[11] = counter.to_u8!
     end
 
     # Return a string hex representation of the ObjectId.
@@ -85,7 +91,8 @@ struct BSON
 
     # Validate that a provided string is a well formated ObjectId.
     def self.validate(id : String) : Bool
-      id.hexbytes?.try &.size == 12
+      # [Performance] Check length and valid characters without allocating a new Bytes slice
+      id.bytesize == 24 && id.each_char.all?(&.hex?)
     end
   end
 end

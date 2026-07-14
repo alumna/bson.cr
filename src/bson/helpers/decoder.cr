@@ -23,6 +23,16 @@ struct BSON
       str
     end
 
+    # [Simplicity] Extracted regex options parsing to reduce code duplication
+    protected def parse_regex_options(opts : String) : Regex::Options
+      modifiers = Regex::Options::None
+      modifiers |= Regex::Options::IGNORE_CASE if opts.includes?('i')
+      modifiers |= Regex::Options::MULTILINE if opts.includes?('m') || opts.includes?('s')
+      modifiers |= Regex::Options::EXTENDED if opts.includes?('x')
+      modifiers |= Regex::Options::UTF_8 if opts.includes?('u')
+      modifiers
+    end
+
     # ameba:disable Metrics/CyclomaticComplexity
     protected def decode_field!(pointer, pos, header = nil, max_pos = nil, skip_checks = false)
       if header
@@ -97,38 +107,22 @@ struct BSON
       when Element::Null
         value = nil
       when Element::Regexp
-        pattern_size = 0
-        loop do
-          break if (pointer + pos + pattern_size).value == 0x00
-          if (max_pos && (pos + pattern_size) >= max_pos)
-            raise "Invalid Regexp field (string overflow): #{key}"
-          end
-          pattern_size += 1
-        end
+        # [Performance] Use LibC.strlen instead of manual byte loops
+        pattern_size = LibC.strlen(pointer + pos)
+        raise "Invalid Regexp field (string overflow): #{key}" if max_pos && (pos + pattern_size) >= max_pos
+
         check_size! pattern_size unless skip_checks
-        check_overflow! pos, pattern_size, max_pos unless skip_checks
         pattern = decode_string!(pointer + pos, pattern_size, skip_checks: skip_checks)
         pos += pattern_size + 1
 
-        opts_size = 0
-        loop do
-          break if (pointer + pos + opts_size).value == 0x00
-          if (max_pos && (pos + opts_size) >= max_pos)
-            raise "Invalid Regexp field (string overflow): #{key}"
-          end
-          opts_size += 1
-        end
+        opts_size = LibC.strlen(pointer + pos)
+        raise "Invalid Regexp field (string overflow): #{key}" if max_pos && (pos + opts_size) >= max_pos
+
         check_size! opts_size unless skip_checks
         opts = decode_string!(pointer + pos, opts_size, skip_checks: skip_checks)
         pos += opts_size + 1
 
-        modifiers = Regex::Options::None
-        modifiers |= Regex::Options::IGNORE_CASE if opts.index('i')
-        modifiers |= Regex::Options::MULTILINE if opts.index('m') || opts.index('s')
-        modifiers |= Regex::Options::EXTENDED if opts.index('x')
-        modifiers |= Regex::Options::UTF_8 if opts.index('u')
-
-        value = Regex.new(pattern, modifiers)
+        value = Regex.new(pattern, Decoder.parse_regex_options(opts))
       when Element::DBPointer
         str_size = (pointer + pos).as(Pointer(Int32)).value
         check_size! str_size unless skip_checks
@@ -232,12 +226,10 @@ struct BSON
       when Element::Regexp
         # 2 cstrings
         2.times do
-          loop do
-            break if (pointer + pos).value == 0x00
-            break if max_pos && pos >= max_pos
-            pos += 1
-          end
-          pos += 1
+          # [Performance] Use LibC.strlen to skip null-terminated strings instantly
+          len = LibC.strlen(pointer + pos)
+          raise "Invalid BSON (string overflow)" if max_pos && (pos + len) >= max_pos
+          pos += len + 1
         end
       when Element::DBPointer
         str_size = (pointer + pos).as(Pointer(Int32)).value
@@ -308,15 +300,13 @@ struct BSON
         builder[key] = Symbol.new(pull.read_string)
       when "$numberDouble"
         double_str = pull.read_string
-        if double_str == "Infinity"
-          builder[key] = Float64::INFINITY
-        elsif double_str == "-Infinity"
-          builder[key] = -Float64::INFINITY
-        elsif double_str == "NaN"
-          builder[key] = Float64::NAN
-        else
-          raise "Invalid double string representation: #{double_str}"
-        end
+        # [Correctness] Process all double string values, not just special cases
+        builder[key] = case double_str
+                       when "Infinity"  then Float64::INFINITY
+                       when "-Infinity" then -Float64::INFINITY
+                       when "NaN"       then Float64::NAN
+                       else                  double_str.to_f64
+                       end
       when "$numberDecimal"
         builder[key] = Decimal128.new(pull.read_string)
       when "$binary"
@@ -326,7 +316,8 @@ struct BSON
           if binary_key == "base64"
             binary_base64 = pull.read_string
           elsif binary_key == "subType"
-            binary_subtype = Binary::SubType.from_value(pull.read_string.hexbytes.to_unsafe.value)
+            # [Performance] Parse hex string directly to integer instead of allocating a Bytes slice
+            binary_subtype = Binary::SubType.from_value(pull.read_string.to_u8(16))
           else
             pull.read_next
           end
@@ -341,7 +332,9 @@ struct BSON
         code_str = pull.read_string
         scope_document = nil
         unless pull.kind.end_object?
-          pull.read_object_key
+          # [Correctness] Validate that the key is actually "$scope"
+          scope_key = pull.read_object_key
+          raise "Expected $scope in $code object, got: #{scope_key}" unless scope_key == "$scope"
           scope_document = BSON.new(pull)
         end
         builder[key] = Code.new(code_str, scope_document)
@@ -371,13 +364,7 @@ struct BSON
           end
         }
 
-        regex_modifiers = Regex::Options::None
-        regex_modifiers |= Regex::Options::IGNORE_CASE if regex_options.index('i')
-        regex_modifiers |= Regex::Options::MULTILINE if regex_options.index('m') || regex_options.index('s')
-        regex_modifiers |= Regex::Options::EXTENDED if regex_options.index('x')
-        regex_modifiers |= Regex::Options::UTF_8 if regex_options.index('u')
-
-        builder[key] = Regex.new(regex_pattern, regex_modifiers)
+        builder[key] = Regex.new(regex_pattern, Decoder.parse_regex_options(regex_options))
       when "$dbPointer"
         db_ref = ""
         db_oid = ""
@@ -401,14 +388,16 @@ struct BSON
         if pull.kind.string?
           builder[key] = Time.new(pull)
         else
-          date_time = ""
+          date_time : String? = nil
           pull.read_object { |date_key|
-            if date_key === "$numberLong"
+            if date_key == "$numberLong"
               date_time = pull.read_string
             else
               pull.read_next
             end
           }
+          # [Correctness] Raise an explicit error instead of failing cryptically
+          raise "Expected $numberLong in $date object" unless date_time
           builder[key] = Time.unix_ms(date_time.to_i64)
         end
       when "$minKey"

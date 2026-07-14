@@ -5,9 +5,10 @@ struct BSON
     def initialize(@io : IO::Memory = IO::Memory.new); end
 
     private def field(code : Element, key : String)
-      @io.write_bytes code.value, IO::ByteFormat::LittleEndian
+      # [Performance] Use write_byte instead of write_bytes for 1-byte primitives
+      @io.write_byte code.value
       @io << key
-      @io.write_bytes 0x00_u8, IO::ByteFormat::LittleEndian
+      @io.write_byte 0x00_u8
     end
 
     def []=(key : String, value : Float64)
@@ -24,7 +25,7 @@ struct BSON
       field(:string, key)
       @io.write_bytes value.bytesize + 1, IO::ByteFormat::LittleEndian
       @io << value
-      @io.write_bytes 0x00_u8, IO::ByteFormat::LittleEndian
+      @io.write_byte 0x00_u8
     end
 
     def []=(key : String, value : BSON)
@@ -55,26 +56,28 @@ struct BSON
     def []=(key : String, value : Array)
       array_builder = Builder.new
       value.each_with_index { |item, index|
+        # [Performance] Avoid string interpolation overhead
+        str_index = index.to_s
         if item.responds_to? :to_bson
-          array_builder["#{index}"] = item.to_bson
+          array_builder[str_index] = item.to_bson
         else
-          array_builder["#{index}"] = item
+          array_builder[str_index] = item
         end
       }
-      array_document = BSON.new(array_builder.to_bson)
       field(:array, key)
-      @io.write array_document.data
+      # [Performance] Directly use bytes to avoid unnecessary instantiation and copy
+      @io.write array_builder.to_bson
     end
 
     def []=(key : String, value : Binary)
       field(:binary, key)
       if value.subtype.binary_old?
         @io.write_bytes value.data.size + 4, IO::ByteFormat::LittleEndian
-        @io.write_bytes value.subtype.value, IO::ByteFormat::LittleEndian
+        @io.write_byte value.subtype.value
         @io.write_bytes value.data.size, IO::ByteFormat::LittleEndian
       else
         @io.write_bytes value.data.size, IO::ByteFormat::LittleEndian
-        @io.write_bytes value.subtype.value, IO::ByteFormat::LittleEndian
+        @io.write_byte value.subtype.value
       end
       @io.write value.data
     end
@@ -94,8 +97,9 @@ struct BSON
 
     def []=(key : String, value : Bool)
       field(:boolean, key)
-      value = value ? 0x01_u8 : 0x00_u8
-      @io.write_bytes value, IO::ByteFormat::LittleEndian
+      # [Simplicity] Rename to avoid shadowing the method parameter
+      byte_value = value ? 0x01_u8 : 0x00_u8
+      @io.write_byte byte_value
     end
 
     def []=(key : String, value : Time)
@@ -110,15 +114,13 @@ struct BSON
     def []=(key : String, value : Regex)
       field(:regexp, key)
       @io << value.source
-      @io.write_bytes 0x00_u8, IO::ByteFormat::LittleEndian
-      options = String.build do |str|
-        str << "i" if value.options.includes? :ignore_case
-        str << "m" if value.options.includes? :multiline
-        str << "x" if value.options.includes? :extended
-        str << "u" if value.options.includes? :utf_8
-      end
-      @io << options
-      @io.write_bytes 0x00_u8, IO::ByteFormat::LittleEndian
+      @io.write_byte 0x00_u8
+      # [Performance] Write option chars directly to IO instead of a new String allocation
+      @io.write_byte 'i'.ord.to_u8! if value.options.includes? :ignore_case
+      @io.write_byte 'm'.ord.to_u8! if value.options.includes? :multiline
+      @io.write_byte 'x'.ord.to_u8! if value.options.includes? :extended
+      @io.write_byte 'u'.ord.to_u8! if value.options.includes? :utf_8
+      @io.write_byte 0x00_u8
     end
 
     def []=(key : String, value : Int8)
@@ -173,13 +175,13 @@ struct BSON
         @io.write_bytes total_size, IO::ByteFormat::LittleEndian
         @io.write_bytes value.code.bytesize + 1, IO::ByteFormat::LittleEndian
         @io << value.code
-        @io.write_bytes 0x00_u8, IO::ByteFormat::LittleEndian
+        @io.write_byte 0x00_u8
         @io.write scope.data
       else
         field(:js_code, key)
         @io.write_bytes value.code.bytesize + 1, IO::ByteFormat::LittleEndian
         @io << value.code
-        @io.write_bytes 0x00_u8, IO::ByteFormat::LittleEndian
+        @io.write_byte 0x00_u8
       end
     end
 
@@ -187,7 +189,7 @@ struct BSON
       field(:symbol, key)
       @io.write_bytes value.data.bytesize + 1, IO::ByteFormat::LittleEndian
       @io << value.data
-      @io.write_bytes 0x00_u8, IO::ByteFormat::LittleEndian
+      @io.write_byte 0x00_u8
     end
 
     def []=(key : String, value : Timestamp)
@@ -200,7 +202,7 @@ struct BSON
       field(:db_pointer, key)
       @io.write_bytes value.data.bytesize + 1, IO::ByteFormat::LittleEndian
       @io << value.data
-      @io.write_bytes 0x00_u8, IO::ByteFormat::LittleEndian
+      @io.write_byte 0x00_u8
       @io.write value.oid.data
     end
 
