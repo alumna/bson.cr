@@ -22,9 +22,9 @@ This project is an active, organization-owned fork (`alumna/bson.cr`) originally
 - [x] **BSON Binary Vector (`0x09`):** Scaffold `0x09` subtype in the enum and implement specific padding/decoding logic passing `float32`, `int8`, and `packed_bit` validation tests.
 
 ### Phase 2: BSON Corpus Sync (Part A - Standard Types) [Pending]
-- **Target:** Update the out-of-date corpus test files in `spec/corpus/`.
-- **Files to Sync:** `array`, `binary`, `boolean`, `datetime`, `document`, `string`, `double`, `int32`, `int64`, `null`, `maxkey`, `minkey`, `symbol`, `undefined`
-- **Goal:** Replace existing JSONs. Run the spec suite, fix breakages. Address edge cases in parsing.
+- [x] **Target:** Update the out-of-date corpus test files in `spec/corpus/`.
+- [x] **Files to Sync:** `array`, `binary`, `boolean`, `datetime`, `document`, `string`, `double`, `int32`, `int64`, `null`, `maxkey`, `minkey`, `symbol`, `undefined`
+- [x] **Goal:** Replace existing JSONs. Run the spec suite, fix breakages. Address edge cases in parsing.
 
 ### Phase 3: BSON Corpus Sync (Part B - Complex Types) [Pending]
 - **Target:** Update remaining complex corpus tests.
