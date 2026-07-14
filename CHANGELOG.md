@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.0 - 2026-07-14
+
+### Added
+* **binary:** Added `CompressedBSONColumn` (`0x07`) and `Sensitive` (`0x08`) to `BSON::Binary::SubType`.
+* **spec:** Synced all standard types with the upstream MongoDB BSON corpus.
+
+### Changed
+* **extjson:** `to_relaxed_extjson` for `Datetime` now correctly omits the `.000` fraction for exact-second timestamps.
+* **serialization:** Simplified `BSON::Options` camelize annotation extraction.
+
+### Fixed
+* **extjson:** `$numberDouble` parser now accepts all valid floating-point strings, not just `NaN` and `Infinity`.
+* **extjson:** `$date` parser now explicitly validates the presence of the `$numberLong` key.
+* **extjson:** `$code` parser now strictly validates the `$scope` key.
+* **core:** `BSON#clear` now correctly writes the initial 5-byte size header.
+* **core:** `BSON::ObjectId` counter now correctly uses modulo `0x1000000` for 3-byte overflow wrapping.
+
+### Performance
+* **serialization:** `BSON::Serializable` now performs a single-pass O(M) deserialization instead of an O(N×M) multi-pass lookup.
+* **core:** BSON key lookups and field skipping now use `LibC.strcmp` and `LibC.strlen`, eliminating heap `String` allocations during document traversal.
+* **core:** `BSON::ObjectId` generation now uses direct byte slice manipulation instead of `IO::Memory`, drastically reducing heap allocations.
+* **core:** `BSON#[]=` and `BSON#append` now use pre-sized `IO::Memory` buffers to prevent internal reallocations.
+* **core:** Serializers now use `write_byte` instead of `write_bytes` with explicit endianness for single-byte primitives.
+* **core:** `BSON#to_json` logic blocks were inlined to avoid `Proc` closures.
+* **core:** Eliminated redundant `BSON.new` byte array cloning in array builders and `Iterator` generation.
+
 ## 0.4.0 - 2026-07-13
 
 ### Added

@@ -17,7 +17,8 @@ Progress on the specifications to be implemented or updated:
 - [x] **BSON Binary UUID** (`bson-binary-uuid/uuid.md`): Subtypes `0x03` (Legacy) and `0x04` (UUID) are correctly declared and handled.
 - [x] **BSON Binary Vector** (`bson-binary-vector/bson-binary-vector.md`): Subtype `0x09` is implemented for MongoDB's vector search capabilities (float32, int8, packed_bit).
 - [ ] **BSON Binary Encrypted** (`bson-binary-encrypted/binary-encrypted.md`): Subtype `0x06` is declared in the enum, but we need to ensure full spec compliance (especially regarding Extended JSON representation).
-- [ ] **BSON Corpus Sync** (`bson-corpus/`): The current `spec/corpus/*.json` files are out of date. We need to ingest the newest corpus files and patch any edge cases that fail.
+- [x] **BSON Corpus Sync (Part A)** (`bson-corpus/`): Ingested and passed the newest upstream corpus files for all standard types. ExtJSON parsing and encoding logic stabilized.
+- [ ] **BSON Corpus Sync (Part B)** (`bson-corpus/`): Complex types (`decimal128`, `dbref`, etc.) are pending synchronization and validation against edge cases.
 - [x] **Crystal 1.20 Modernization**: Ensure the `shard.yml` targets newer Crystal versions, fix `Mutex` deprecations, run `crystal tool format`, and update GitHub actions for Debian/Ubuntu 24.04 runners.
 
 ## Usage
