@@ -1,25 +1,55 @@
-## bson.cr - temporary fork
+<div align="center">
+  <img src="icon.svg" width="128" height="128" />
+  <h1>bson.cr</h1>
+  <h3>A pure Crystal implementation of the <a href="http://bsonspec.org">BSON specification</a>.</h3>
+  <a href="https://github.com/alumna/bson.cr/actions/workflows/crystal.yml"><img alt="Crystal CI" src="https://github.com/alumna/bson.cr/actions/workflows/crystal.yml/badge.svg"></a>
+  <a href="https://github.com/alumna/bson.cr/tags"><img alt="GitHub tag (latest SemVer)" src="https://img.shields.io/github/v/tag/alumna/bson.cr"></a>
+  <a href="https://github.com/alumna/bson.cr/blob/master/LICENSE"><img alt="GitHub" src="https://img.shields.io/github/license/alumna/bson.cr"></a>
+</div>
 
-This is a temporary fork of [github.com/elbywan/bson.cr](https://github.com/elbywan/bson.cr) in which the objective is to gradually update it to the more recent BSON specification, focusing one being compatible with MongoDB 8.0. It also aims to modernize the codebase with Crystal 1.20.x, like updating it to the new `Sync::Mutex`, among other things.
+This is a temporary fork to update the spec while also working on performance, stability, and modern MongoDB compatibility. Merging to upstream original repository is part of the plan, as soon as the work on updating `Cryomongo` is concluded.
 
-The fork is to allow a work without concerns on retro-compatibility in the short term and to, eventually, help paving the way for a future merge at the upstream repository, with the retro-compatibility challenges tackled at a later stage.
+It is expected to be faster, using less memory, and to strictly follow the newest MongoDB specification. Benchmarks will be added.
 
-This is an ongoing effort to also update [cryomongo](github.com/elbywan/cryomongo), temporarily forked at [github.com/alumna/cryomongo](https://github.com/alumna/cryomongo), with the objective of being available for a future upstream merge in the original repository, if and when desired by the main maintainers.
+On a technical level, the current update already includes:
 
-If you don't need compatibility with recent MongoDB, then the upstream repositories mentioned above are the correct choice. The objective here is not to replace them. But to try in a safe fork to gradually update things until we achieved full compatibility, then as most retro-compatibility as possible. Then upstream merge.
+* **MongoDB 8.0 & Spec Compliance:** Full support for the most recent BSON specification, including the new Binary `Vector` types (Float32, Int8, PackedBit). Furthermore, it strictly passes all 1,025 tests in the official MongoDB BSON corpus, sealing vulnerabilities and ensuring perfect type preservation.
+* **Zero-Allocation Extended JSON:** Building JSON boundaries no longer churns the garbage collector. Instead of allocating temporary strings on the heap for numbers, dates, and base64 payloads, it now streams bytes directly into memory (`IO`), reducing memory overhead.
+* **Native `Decimal128`:** The 128-bit decimal implementation was completely rewritten. The C-bindings (`LibGMP`/`BigInt`) were removed in favor of pure-Crystal `UInt128` bitwise operations, and the struct was reduced strictly to 16 bytes, as per the specification. It is now natively compiled and is deeply optimized.
+* **Crystal 1.20 Ready:** Updated for the latest Crystal 1.20.x branch, replacing deprecated synchronization primitives (now using `Sync::Mutex`) and optimizing byte-level parsing logic.
 
 ### Roadmap & Checklist
 
-Progress on the specifications to be implemented or updated:
+The update roadmap is now concluded for this shard and the current work is now directed to update `Cryomongo`.
 
 - [x] **BSON ObjectId** (`bson-objectid/objectid.md`): Currently up-to-date with the 12-byte modern specification.
-- [x] **BSON Decimal128** (`bson-decimal128/decimal128.md`): Basic spec implemented and passing existing corpus tests.
+- [x] **BSON Decimal128** (`bson-decimal128/decimal128.md`): Modern native `UInt128` implementation. Highly optimized and zero-allocation.
 - [x] **BSON Binary UUID** (`bson-binary-uuid/uuid.md`): Subtypes `0x03` (Legacy) and `0x04` (UUID) are correctly declared and handled.
 - [x] **BSON Binary Vector** (`bson-binary-vector/bson-binary-vector.md`): Subtype `0x09` is implemented for MongoDB's vector search capabilities (float32, int8, packed_bit).
-- [ ] **BSON Binary Encrypted** (`bson-binary-encrypted/binary-encrypted.md`): Subtype `0x06` is declared in the enum, but we need to ensure full spec compliance (especially regarding Extended JSON representation).
-- [x] **BSON Corpus Sync (Part A)** (`bson-corpus/`): Ingested and passed the newest upstream corpus files for all standard types. ExtJSON parsing and encoding logic stabilized.
-- [x] **BSON Corpus Sync (Part B)** (`bson-corpus/`): Complex types (`decimal128`, `dbref`, etc.) are new synchronized and validated, including edge cases.
-- [x] **Crystal 1.20 Modernization**: Ensure the `shard.yml` targets newer Crystal versions, fix `Mutex` deprecations, run `crystal tool format`, and update GitHub actions for Debian/Ubuntu 24.04 runners.
+- [x] **BSON Binary Encrypted** (`bson-binary-encrypted/binary-encrypted.md`): Subtype `0x06` is declared and strictly complies with the Extended JSON representation via zero-allocation Base64 streaming.
+- [x] **BSON Corpus Sync (Part A)** (`bson-corpus/`): Ingested and passed the newest upstream corpus files for all standard types.
+- [x] **BSON Corpus Sync (Part B)** (`bson-corpus/`): Ingested and passed all complex types (`decimal128`, `dbref`, etc.), including the strict `parseErrors` boundary test suite.
+- [x] **Crystal 1.20 Modernization**: `shard.yml` now targets newer Crystal `1.20.x`, fix `Mutex` deprecations in favor of `Sync::Mutex` and update GitHub actions for Debian/Ubuntu 24.04 runners.
+
+## Reliability
+
+This library passes the official corpus tests located in the [`mongodb/specifications`](https://github.com/mongodb/specifications) repository.
+
+## Installation
+
+1. Add the dependency to your `shard.yml`:
+
+   ```yaml
+   dependencies:
+     bson:
+       github: elbywan/bson.cr
+   ```
+
+2. Run `shards install`
+
+## API
+
+[Full API documentation is hosted here.](https://elbywan.github.io/bson.cr/BSON.html)
 
 ## Usage
 
@@ -232,8 +262,7 @@ p BSON::ObjectId.validate("1234567890abcdefghijklmn")
 
 ## Decimal128
 
-The `Decimal128` code has been hastily copied from the [`bson-ruby`](https://github.com/mongodb/bson-ruby/blob/master/lib/bson/decimal128.rb) library.
-It works, but performance is low because it uses an intermediate String representation.
+The `BSON::Decimal128` type is implemented natively in Crystal. It uses `UInt128` bitwise operations to accurately conform to the 34-digit precision IEEE-754 decimal128 standard. It does not rely on `LibGMP` (BigInt) bindings and is fully optimized for zero-allocation Extended JSON streaming, making it really fast.
 
 ## Contributing
 

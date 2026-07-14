@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 - 2026-07-14
+
+### Added
+* **spec:** Synced all remaining complex BSON corpus tests (`decimal128`, `dbref`, `code`, `regex`, etc.).
+* **spec:** Added full support for the BSON corpus `parseErrors` test suite to guarantee ExtJSON parser compliance.
+* **extjson:** Fully implemented Encrypted BSON (Subtype `0x06`) canonical ExtJSON representation via zero-allocation base64 streaming.
+
+### Changed
+* **decimal128:** Complete rewrite of `BSON::Decimal128` implementation to utilize native `UInt128` math, removing the heavy dependency on `require "big"` and `LibGMP`.
+* **decimal128:** Removed cached instance variables from the struct, shrinking its memory footprint to exactly 16 bytes.
+* **extjson:** Migrated `BSON::Decimal128`, `Int32`, `Int64`, `Float64`, `Slice`, `Time`, and `UUID` to stream their outputs directly to the `JSON::Builder`'s IO, eliminating intermediate string allocations.
+
+### Fixed
+* **extjson:** The JSON parser now strictly validates `$uuid` lengths (must be 36 characters).
+* **extjson:** The JSON parser now rejects `null` bytes within document keys, mitigating potential injection vulnerabilities identified by the BSON corpus.
+* **extjson:** Enforced strict type-checking for `$timestamp` (`t` and `i` must be integers).
+* **core:** Pure BSON now properly treats invalid driver-level `DBRef` documents as standard `BSON::Document` fallbacks.
+
 ## 0.5.0 - 2026-07-14
 
 ### Added

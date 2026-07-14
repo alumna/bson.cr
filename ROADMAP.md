@@ -1,39 +1,36 @@
-# ROADMAP.md
+# ROADMAP
 
 ## Project Context
-This project is an active, organization-owned fork (`alumna/bson.cr`) originally based on `elbywan/bson.cr`. It provides a pure Crystal implementation of the BSON specification.
-- **Goal:** Supply-chain security, modernization for Crystal 1.20+, and acting as a robust foundation for the `cryomongo` enterprise driver targeting MongoDB 8.0.
-- **Target OS:** Linux exclusively (Debian 13 / Ubuntu 24.04).
-- **Target Compiler:** Crystal 1.20+. Strict avoidance of deprecated standard library modules.
 
-## Architecture & Technical Debt Guidelines
-1. **Spec Compliance is Absolute:** Must maintain 100% compatibility with official `mongodb/specifications` corpus tests.
-2. **Performance Constraints:** This runs on *every* database I/O boundary. Minimize memory allocations.
-3. **Decimal128:** Currently parsed via strings (slow). Short-term: stabilize and pass corpus. Long-term: native bitwise implementation or `libmpdec`.
-4. **Extended JSON (extJSON):** Exact representation matching is critical, as MongoDB drivers rely on this for logging, debugging, and mock testing.
+This project is an active fork (`alumna/bson.cr`) originally based on `elbywan/bson.cr`. It provides a pure Crystal implementation of the BSON specification.
+- **Goal:** modernization for Crystal 1.20+, and acting as a foundation for the `cryomongo` updated driver targeting MongoDB 8.0.
+- **Target OS:** Linux exclusively (Debian 13 / Ubuntu 24.04). The other OSed later, when the update is concluded.
+- **Target Compiler:** Crystal 1.20+. Strict avoidance of deprecated standard library modules.
 
 ---
 
 ## Phases & Progress
 
-### Phase 1: Tooling, Crystal 1.20, and Binary Vector Support [Done]
+### Phase 1: Tooling, Crystal 1.20, and Binary Vector Support [Completed]
 - [x] Create `ROADMAP.md` to define boundaries and upcoming steps.
 - [x] **Crystal 1.20 Modernization:** Update `shard.yml` dependencies, bump GitHub actions to `ubuntu-24.04`, and fix `Mutex` deprecations (now `Sync::Mutex`).
 - [x] **BSON Binary Vector (`0x09`):** Scaffold `0x09` subtype in the enum and implement specific padding/decoding logic passing `float32`, `int8`, and `packed_bit` validation tests.
 
-### Phase 2: BSON Corpus Sync (Part A - Standard Types) [Done]
-- [x] **Target:** Update the out-of-date corpus test files in `spec/corpus/`.
-- [x] **Files to Sync:** `array`, `binary`, `boolean`, `datetime`, `document`, `string`, `double`, `int32`, `int64`, `null`, `maxkey`, `minkey`, `symbol`, `undefined`
-- [x] **Goal:** Replace existing JSONs. Run the spec suite, fix breakages. Address edge cases in parsing.
+### Phase 2: BSON Corpus Sync (Part A - Standard Types) [Completed]
+- [x] Replace existing JSONs. Run the spec suite, fix breakages. Address edge cases in parsing.
+- [x] Synced: `array`, `binary`, `boolean`, `datetime`, `document`, `string`, `double`, `int32`, `int64`, `null`, `maxkey`, `minkey`, `symbol`, `undefined`.
 
-### Phase 3: BSON Corpus Sync (Part B - Complex Types) [Done]
-- [x] **Target:** Update remaining complex corpus tests.
-- [x] **Files to Sync:** `decimal128-*.json`, `code`, `code_w_scope`, `dbref`, `regex`, `timestamp`, `oid`, `top`, `multi-type`, `multi-type-deprecated`, `dbpointer`
-- [x] **Goal:** Resolve `ignore_json_roundtrip` hacks added by the original author. Ensure `Decimal128` string parsing can handle the modern spec cases.
+### Phase 3: BSON Corpus Sync (Part B - Complex Types) [Completed]
+- [x] Resolve `ignore_json_roundtrip` hacks added by the original author.
+- [x] Implement the `parseErrors` suite to guarantee strict Extended JSON boundaries.
+- [x] Synced: `decimal128-*.json`, `code`, `code_w_scope`, `dbref`, `regex`, `timestamp`, `oid`, `top`, `multi-type`, `multi-type-deprecated`, `dbpointer`.
 
-### Phase 4: BSON Binary Encrypted & Extended JSON Audit [Done]
-- **Target:** Implement `bson-binary-encrypted/binary-encrypted.md`.
-- **Goal:** Ensure `to_json` (Relaxed) and `to_canonical_extjson` (Canonical) outputs perfectly align with the MongoDB specs for subtype `0x06`. We don't need cryptography implementations here, just accurate binary enveloping and extJSON conversion.
-- **Native IEEE-754 Bitwise Implementation**: We can replace the slow String/Regex `Decimal128` parser with a direct native string parser that uses fast `UInt64` math to directly calculate the `exponent` and `significand` bits. 
-- **Zero-Allocation ExtJSON Building**: ExtJSON is heavily utilized. Currently, strings are duplicated, and elements are rebuilt using nested `JSON::Builder` objects which closures. Solution: stream data directly into the JSON buffer with zero intermediate heap allocations.
-- **Refined PullParser Handling**: The recent updates to Crystal 1.20 make string keys significantly faster, allowing us to drop any lingering `.to_s` conversions during parsing.
+### Phase 4: BSON Binary Encrypted, Decimal128 Rewrite & Zero-Allocation ExtJSON [Completed]
+- [x] **Decimal128:** Dropped `LibGMP` (`BigInt`) dependency. Rewrote `Decimal128` to use native `UInt128` bitwise operations, reducing struct size to exactly 16 bytes.
+- [x] **Zero-Allocation:** Replaced intermediate string allocations during Extended JSON generation with direct IO streaming (`builder.string { |io| ... }`).
+- [x] **Encrypted BSON:** Ensured `to_json` and `to_canonical_extjson` outputs perfectly align with the MongoDB specs for subtype `0x06` via optimized base64 slice streaming.
+
+---
+
+## Future Stage: Integration & Upstream
+With the BSON foundation now fully optimized and compliant with MongoDB 8.0 specs, the focus shifts to utilizing this fork within the `alumna/cryomongo` driver. Once `cryomongo` is stabilized and tested in production, a comprehensive PR will be compiled to propose merging these enhancements back into the original `elbywan/bson.cr` upstream repository.
