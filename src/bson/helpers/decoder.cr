@@ -283,6 +283,7 @@ struct BSON
           builder[key] = BSON.new(Builder.new.to_bson)
         else
           inner_key = pull.read_object_key
+          raise "Bad document key" if inner_key.includes?('\u0000')
           self.decode_json_object(inner_key, kind, key, builder, pull)
         end
         pull.read_end_object
@@ -295,123 +296,183 @@ struct BSON
     protected def decode_json_object(inner_key : String, kind : JSON::PullParser::Kind, key : String, builder : Builder, pull : JSON::PullParser)
       case inner_key
       when "$oid"
+        raise "Bad $oid" unless pull.kind.string?
         builder[key] = ObjectId.new(pull.read_string)
+        raise "Bad $oid" unless pull.kind.end_object?
       when "$symbol"
+        raise "Bad $symbol" unless pull.kind.string?
         builder[key] = Symbol.new(pull.read_string)
+        raise "Bad $symbol" unless pull.kind.end_object?
+      when "$numberInt"
+        raise "Bad $numberInt" unless pull.kind.string?
+        builder[key] = pull.read_string.to_i32
+        raise "Bad $numberInt" unless pull.kind.end_object?
+      when "$numberLong"
+        raise "Bad $numberLong" unless pull.kind.string?
+        builder[key] = pull.read_string.to_i64
+        raise "Bad $numberLong" unless pull.kind.end_object?
       when "$numberDouble"
+        raise "Bad $numberDouble" unless pull.kind.string?
         double_str = pull.read_string
-        # [Correctness] Process all double string values, not just special cases
         builder[key] = case double_str
                        when "Infinity"  then Float64::INFINITY
                        when "-Infinity" then -Float64::INFINITY
                        when "NaN"       then Float64::NAN
                        else                  double_str.to_f64
                        end
+        raise "Bad $numberDouble" unless pull.kind.end_object?
       when "$numberDecimal"
+        raise "Bad $numberDecimal" unless pull.kind.string?
         builder[key] = Decimal128.new(pull.read_string)
+        raise "Bad $numberDecimal" unless pull.kind.end_object?
       when "$binary"
-        binary_base64 = ""
-        binary_subtype : Binary::SubType = :generic
+        binary_base64 = nil
+        binary_subtype = nil
+        raise "Bad $binary" unless pull.kind.begin_object?
         pull.read_object { |binary_key|
           if binary_key == "base64"
+            raise "Bad $binary" unless pull.kind.string?
             binary_base64 = pull.read_string
           elsif binary_key == "subType"
-            # [Performance] Parse hex string directly to integer instead of allocating a Bytes slice
-            binary_subtype = Binary::SubType.from_value(pull.read_string.to_u8(16))
+            raise "Bad $binary" unless pull.kind.string?
+            binary_subtype = pull.read_string
           else
-            pull.read_next
+            raise "Bad $binary"
           end
         }
+        raise "Bad $binary" if binary_base64.nil? || binary_subtype.nil?
         binary_bytes = Base64.decode(binary_base64)
-        if binary_subtype.uuid?
+        subtype = Binary::SubType.from_value(binary_subtype.to_u8(16))
+        if subtype.uuid?
           builder[key] = UUID.new(binary_bytes)
         else
-          builder[key] = Binary.new(binary_subtype, binary_bytes)
+          builder[key] = Binary.new(subtype, binary_bytes)
         end
+        raise "Bad $binary" unless pull.kind.end_object?
+      when "$uuid"
+        raise "Bad $uuid" unless pull.kind.string?
+        uuid_str = pull.read_string
+        raise "Bad $uuid" unless uuid_str.bytesize == 36
+        builder[key] = UUID.new(uuid_str)
+        raise "Bad $uuid" unless pull.kind.end_object?
       when "$code"
+        raise "Bad $code" unless pull.kind.string?
         code_str = pull.read_string
         scope_document = nil
         unless pull.kind.end_object?
-          # [Correctness] Validate that the key is actually "$scope"
           scope_key = pull.read_object_key
           raise "Expected $scope in $code object, got: #{scope_key}" unless scope_key == "$scope"
+          raise "Bad $code" unless pull.kind.begin_object?
           scope_document = BSON.new(pull)
         end
         builder[key] = Code.new(code_str, scope_document)
+        raise "Bad $code" unless pull.kind.end_object?
       when "$timestamp"
-        timestamp_i = timestamp_t = 0
+        raise "Bad $timestamp" unless pull.kind.begin_object?
+        timestamp_i = nil
+        timestamp_t = nil
         pull.read_object { |timestamp_key|
           if timestamp_key == "i"
+            raise "Bad $timestamp" unless pull.kind.int?
             timestamp_i = pull.read_int
           elsif timestamp_key == "t"
+            raise "Bad $timestamp" unless pull.kind.int?
             timestamp_t = pull.read_int
           else
-            pull.read_next
+            raise "Bad $timestamp"
           end
         }
+        raise "Bad $timestamp" if timestamp_i.nil? || timestamp_t.nil?
         builder[key] = Timestamp.new(timestamp_t.to_u32, timestamp_i.to_u32)
+        raise "Bad $timestamp" unless pull.kind.end_object?
       when "$regularExpression"
-        regex_pattern = ""
-        regex_options = ""
+        raise "Bad $regularExpression" unless pull.kind.begin_object?
+        regex_pattern = nil
+        regex_options = nil
 
         pull.read_object { |regex_key|
           if regex_key == "pattern"
+            raise "Bad $regularExpression" unless pull.kind.string?
             regex_pattern = pull.read_string
+            raise "Bad $regularExpression" if regex_pattern.includes?('\u0000')
           elsif regex_key == "options"
+            raise "Bad $regularExpression" unless pull.kind.string?
             regex_options = pull.read_string
+            raise "Bad $regularExpression" if regex_options.includes?('\u0000')
           else
-            pull.read_next
+            raise "Bad $regularExpression"
           end
         }
+        raise "Bad $regularExpression" if regex_pattern.nil? || regex_options.nil?
 
         builder[key] = Regex.new(regex_pattern, Decoder.parse_regex_options(regex_options))
+        raise "Bad $regularExpression" unless pull.kind.end_object?
       when "$dbPointer"
-        db_ref = ""
-        db_oid = ""
+        db_ref = nil
+        db_oid = nil
+        raise "Bad $dbPointer" unless pull.kind.begin_object?
         pull.read_object { |db_ptr_key|
           if db_ptr_key == "$ref"
+            raise "Bad $dbPointer" unless pull.kind.string?
             db_ref = pull.read_string
           elsif db_ptr_key == "$id"
+            raise "Bad $dbPointer" unless pull.kind.begin_object?
             pull.read_object { |oid_key|
-              if oid_key === "$oid"
+              if oid_key == "$oid"
+                raise "Bad $dbPointer" unless pull.kind.string?
                 db_oid = pull.read_string
               else
-                pull.read_next
+                raise "Bad $dbPointer"
               end
             }
           else
-            pull.read_next
+            raise "Bad $dbPointer"
           end
         }
+        raise "Bad $dbPointer" if db_ref.nil? || db_oid.nil?
         builder[key] = DBPointer.new(db_ref, ObjectId.new db_oid)
+        raise "Bad $dbPointer" unless pull.kind.end_object?
       when "$date"
         if pull.kind.string?
           builder[key] = Time.new(pull)
         else
           date_time : String? = nil
+          raise "Bad $date" unless pull.kind.begin_object?
           pull.read_object { |date_key|
             if date_key == "$numberLong"
+              raise "Bad $date" unless pull.kind.string?
               date_time = pull.read_string
             else
-              pull.read_next
+              raise "Bad $date"
             end
           }
-          # [Correctness] Raise an explicit error instead of failing cryptically
           raise "Expected $numberLong in $date object" unless date_time
           builder[key] = Time.unix_ms(date_time.to_i64)
         end
+        raise "Bad $date" unless pull.kind.end_object?
       when "$minKey"
+        raise "Bad $minKey" unless pull.kind.int?
+        val = pull.read_int
+        raise "Bad $minKey" unless val == 1
         builder[key] = MinKey.new
-        pull.read_next
+        raise "Bad $minKey" unless pull.kind.end_object?
       when "$maxKey"
+        raise "Bad $maxKey" unless pull.kind.int?
+        val = pull.read_int
+        raise "Bad $maxKey" unless val == 1
         builder[key] = MaxKey.new
-        pull.read_next
+        raise "Bad $maxKey" unless pull.kind.end_object?
       when "$undefined"
+        raise "Bad $undefined" unless pull.kind.bool?
+        val = pull.read_bool
+        raise "Bad $undefined" unless val == true
         builder[key] = Undefined.new
-        pull.read_next
+        raise "Bad $undefined" unless pull.kind.end_object?
       else
         object_builder = Builder.new
         until pull.kind.end_object?
+          raise "Bad document key" if inner_key.includes?('\u0000')
+
           self.decode_json_key(pull.kind, inner_key, object_builder, pull)
           inner_key = pull.read_object_key unless pull.kind.end_object?
         end

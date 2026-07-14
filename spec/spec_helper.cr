@@ -33,6 +33,11 @@ module Runner::Corpus
         # JSON roundtrip
         unless test["ignore_json_roundtrip"]?
           BSON.from_json(json).to_json.should eq json
+
+          # Strict BSON byte roundtrip (only if not lossy)
+          unless test["lossy"]? == true
+            BSON.from_json(test["canonical_extjson"].as_s).data.should eq bson_bytes
+          end
         end
       end
     }
@@ -46,6 +51,21 @@ module Runner::Corpus
           bson.validate!
           puts bson.to_json
         }
+      end
+    }
+
+    # Parse Errors
+    corpus["parseErrors"]?.try &.as_a.each { |test|
+      description = test["description"].as_s
+
+      # DBRef is a driver-level convention, not a BSON type. The pure BSON
+      # library correctly treats it as a standard document, so we skip these.
+      next if description.starts_with?("Bad DBRef")
+
+      it "parse error: #{description}", focus: focus.includes?(description), tags: "parse-errors" do
+        expect_raises(Exception) do
+          BSON.from_json(test["string"].as_s)
+        end
       end
     }
   end
