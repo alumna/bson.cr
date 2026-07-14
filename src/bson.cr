@@ -145,6 +145,7 @@ struct BSON
       end
     else
       pull.read_object do |key|
+        raise "Bad document key" if key.includes?('\u0000')
         kind = pull.kind
         Decoder.decode_json_key(kind, key, builder, pull)
       end

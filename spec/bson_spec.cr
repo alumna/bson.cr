@@ -19,6 +19,8 @@ describe BSON do
         decimal128-3
         decimal128-4
         decimal128-5
+        decimal128-6
+        decimal128-7
         document
         double
         int32

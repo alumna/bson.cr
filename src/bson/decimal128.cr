@@ -1,47 +1,22 @@
 require "big"
 
-lib LibGMP
-  fun export = __gmpz_export(rop : Void*, countp : Int32*, order : Int32, size : Int32, endian : Int32, nails : Int32, op : MPZ*) : UInt8*
-  fun import = __gmpz_import(rop : MPZ*, count : Int32, order : Int32, size : Int32, endian : Int32, nails : Int32, op : Void*) : Void
-end
-
-struct BigInt
-  # Fetch a copy of the underlying byte representation.
-  def bytes
-    mpz = self
-    ptr = LibGMP.export(nil, out size, -1, 1, -1, 0, mpz)
-    slice = Bytes.new(size)
-    slice.copy_from(ptr, size)
-    slice
-  end
-
-  # Initialize from a Byte array.
-  def initialize(bytes : Bytes)
-    LibGMP.import(out @mpz, bytes.size, -1, 1, -1, 0, bytes)
-  end
-end
-
 struct BSON
   # 128-bit decimal floating point.
   #
-  # NOTE: This implementation has been mostly ported from https://github.com/mongodb/bson-ruby/blob/master/lib/bson/decimal128.rb.
-  #
-  # **Performance is bad because it relies on a string representation of the value.**
-  #
   # See: https://github.com/mongodb/specifications/blob/master/source/bson-decimal128/decimal128.rst
   struct Decimal128
-    getter low : BigInt, high : BigInt
+    getter low : UInt64, high : UInt64
 
     # Infinity mask.
-    INFINITY_MASK = 0x7800000000000000.to_big_i
+    INFINITY_MASK = 0x7800000000000000_u64
     # NaN mask.
-    NAN_MASK = 0x7c00000000000000.to_big_i
+    NAN_MASK = 0x7c00000000000000_u64
     # SNaN mask.
-    SNAN_MASK = (1.to_big_i << 57)
+    SNAN_MASK = 1_u64 << 57
     # Signed bit mask.
-    SIGN_BIT_MASK = (1.to_big_i << 63)
+    SIGN_BIT_MASK = 1_u64 << 63
     # The two highest bits of the 64 high order bits.
-    TWO_HIGHEST_BITS_SET = (3.to_big_i << 61)
+    TWO_HIGHEST_BITS_SET = 3_u64 << 61
     # Exponent offset.
     EXPONENT_OFFSET = 6176
     # Minimum exponent.
@@ -51,64 +26,72 @@ struct BSON
     # Maximum digits of precision.
     MAX_DIGITS_OF_PRECISION = 34
 
-    # Regex matching a string representing NaN.
-    NAN_REGEX = /^(\-)?(S)?NaN$/i
-    # Regex matching a string representing positive or negative Infinity.
-    INFINITY_REGEX = /^(\+|\-)?Inf(inity)?$/i
-    # Regex for the fraction, including leading zeros.
-    SIGNIFICAND_WITH_LEADING_ZEROS_REGEX = /(0*)(\d+)/
-    # Regex for separating a negative sign from the significands.
-    SIGN_AND_DIGITS_REGEX = /^(\-)?(\S+)/
-    # Regex matching a scientific exponent.
-    SCIENTIFIC_EXPONENT_REGEX = /E\+?/i
-    # Regex for capturing trailing zeros.
-    TRAILING_ZEROS_REGEX = /[1-9]*(0+)$/
-    # Regex for a valid decimal128 string format.
-    VALID_DECIMAL128_STRING_REGEX = /^[\-\+]?(\d+(\.\d*)?|\.\d+)(E[\-\+]?\d+)?$/i
-
     # String representing a NaN value.
     NAN_STRING = "NaN"
     # String representing an Infinity value.
     INFINITY_STRING = "Infinity"
 
     # Convert parts representing a Decimal128 into the corresponding bits.
-    def initialize(significand : BigInt, exponent : Int32, is_negative : Bool)
+    def initialize(significand : UInt128, exponent : Int32, is_negative : Bool)
       @low, @high = Decimal128.parts_to_bits(significand, exponent, is_negative)
     end
 
     def initialize(string : String)
-      if match = NAN_REGEX.match(string)
-        @low = 0.to_big_i
-        @high = NAN_MASK
-        @high = @high | SIGN_BIT_MASK if match[1]?
-        @high = @high | SNAN_MASK if match[2]?
-      elsif match = INFINITY_REGEX.match(string)
-        @low = 0.to_big_i
-        @high = INFINITY_MASK
-        @high = @high | SIGN_BIT_MASK if match[1]? == "-"
-      else
-        raise InvalidString.new unless string =~ VALID_DECIMAL128_STRING_REGEX
+      s = string
+      is_neg = s.starts_with?('-')
+      s_no_sign = is_neg || s.starts_with?('+') ? s[1..] : s
 
-        match = SIGN_AND_DIGITS_REGEX.match(string)
-        raise InvalidString.new unless match
-        _, sign, digits_str = match.to_a
-        raise InvalidString.new unless digits_str
-        digits, _, scientific_exp = digits_str.partition(SCIENTIFIC_EXPONENT_REGEX)
-        before_decimal, _, after_decimal = digits.partition('.')
-
-        significand_str = before_decimal + after_decimal
-        match = SIGNIFICAND_WITH_LEADING_ZEROS_REGEX.match(significand_str)
-        raise InvalidString.new unless match
-        significand_str = match.to_a[2]
-        raise InvalidString.new unless significand_str
-
-        exponent = -(after_decimal.size)
-        exponent = exponent + scientific_exp.to_i unless scientific_exp.empty?
-        exponent, significand_str = Decimal128.round_exact(exponent, significand_str)
-        exponent, significand_str = Decimal128.clamp(exponent, significand_str)
-
-        @low, @high = Decimal128.parts_to_bits(significand_str.to_big_i, exponent.to_i, sign == "-")
+      # Handle Specials
+      if s_no_sign.compare("nan", case_insensitive: true) == 0
+        @low = 0_u64
+        @high = NAN_MASK | (is_neg ? SIGN_BIT_MASK : 0_u64)
+        return
+      elsif s_no_sign.compare("snan", case_insensitive: true) == 0
+        @low = 0_u64
+        @high = NAN_MASK | SNAN_MASK | (is_neg ? SIGN_BIT_MASK : 0_u64)
+        return
+      elsif s_no_sign.compare("inf", case_insensitive: true) == 0 || s_no_sign.compare("infinity", case_insensitive: true) == 0
+        @low = 0_u64
+        @high = INFINITY_MASK | (is_neg ? SIGN_BIT_MASK : 0_u64)
+        return
       end
+
+      # Find exponent (E or e)
+      e_idx = s_no_sign.each_byte.with_index.find { |b, _| b == 'E'.ord || b == 'e'.ord }.try &.[1]
+      if e_idx
+        digits_str = s_no_sign[0...e_idx]
+        exp_str = s_no_sign[e_idx + 1..]
+        sci_exp = exp_str.to_i?(10, whitespace: false) || raise InvalidString.new
+      else
+        digits_str = s_no_sign
+        sci_exp = 0
+      end
+
+      raise InvalidString.new if digits_str.empty? || digits_str == "."
+
+      # Find decimal point
+      dot_idx = digits_str.index('.')
+      if dot_idx
+        before = digits_str[0...dot_idx]
+        after = digits_str[dot_idx + 1..]
+        raise InvalidString.new if after.includes?('.')
+        sig_str = before + after
+        exponent = -after.bytesize + sci_exp
+      else
+        sig_str = digits_str
+        exponent = sci_exp
+      end
+
+      # Strip leading zeros
+      sig_str = sig_str.lstrip('0')
+      sig_str = "0" if sig_str.empty?
+
+      exponent, sig_str = Decimal128.round_exact(exponent, sig_str)
+      exponent, sig_str = Decimal128.clamp(exponent, sig_str)
+
+      # Validates characters automatically
+      sig_val = sig_str.to_u128?(10, whitespace: false) || raise InvalidString.new
+      @low, @high = Decimal128.parts_to_bits(sig_val, exponent.to_i, is_neg)
     end
 
     def initialize(big_decimal : BigDecimal)
@@ -116,30 +99,33 @@ struct BSON
     end
 
     def initialize(bytes : Bytes)
-      @low = BigInt.new(bytes[..7])
-      @high = BigInt.new(bytes[8..])
+      @low = IO::ByteFormat::LittleEndian.decode(UInt64, bytes[0, 8])
+      @high = IO::ByteFormat::LittleEndian.decode(UInt64, bytes[8, 8])
     end
 
     def nan?
-      @high & NAN_MASK == NAN_MASK
+      (@high & NAN_MASK) == NAN_MASK
     end
 
     def negative?
-      @high & SIGN_BIT_MASK == SIGN_BIT_MASK
+      (@high & SIGN_BIT_MASK) == SIGN_BIT_MASK
     end
 
     def infinity?
-      @high & INFINITY_MASK == INFINITY_MASK
+      (@high & INFINITY_MASK) == INFINITY_MASK
     end
 
-    def to_s(io : IO)
+    def to_s(io : IO) : Nil
       return io << NAN_STRING if nan?
-      str = infinity? ? INFINITY_STRING : create_string
-      str = negative? ? '-' + str : str
-      io << str
+      io << '-' if negative?
+      if infinity?
+        io << INFINITY_STRING
+      else
+        write_value(io)
+      end
     end
 
-    def to_big_d
+    def to_big_d : BigDecimal
       BigDecimal.new(self.to_s)
     end
 
@@ -148,26 +134,25 @@ struct BSON
     end
 
     # Serialize to a canonical extended json representation.
-    #
-    # NOTE: see https://github.com/mongodb/specifications/blob/master/source/extended-json.rst
     def to_canonical_extjson(builder : JSON::Builder)
       builder.object {
         builder.string("$numberDecimal")
-        builder.scalar(self.to_s)
+        builder.string { |io| self.to_s(io) }
       }
     end
 
-    # BSON byte representation.
-    def bytes
-      low = Bytes.new(8)
-      low.copy_from(@low.bytes)
-      high = Bytes.new(8)
-      high.copy_from(@high.bytes)
+    # Write BSON byte representation directly to an IO.
+    def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian) : Nil
+      io.write_bytes(@low, format)
+      io.write_bytes(@high, format)
+    end
 
-      io = IO::Memory.new
-      io.write low
-      io.write high
-      io.to_slice
+    # BSON byte representation.
+    def bytes : Bytes
+      slice = Bytes.new(16)
+      IO::ByteFormat::LittleEndian.encode(@low, slice[0, 8])
+      IO::ByteFormat::LittleEndian.encode(@high, slice[8, 8])
+      slice
     end
 
     class InvalidString < Exception
@@ -176,45 +161,43 @@ struct BSON
     class InvalidRange < Exception
     end
 
-    protected def self.parts_to_bits(significand : BigInt, exponent : Int32, is_negative : Bool)
-      Decimal128.validate_range!(exponent, significand)
-      exponent = exponent.to_big_i + EXPONENT_OFFSET
-      high = significand >> 64
-      low = (high << 64) ^ significand
+    protected def self.parts_to_bits(significand : UInt128, exponent : Int32, is_negative : Bool)
+      validate_range!(exponent, significand)
+      exponent += EXPONENT_OFFSET
+      high = (significand >> 64).to_u64!
+      low = (significand & 0xFFFFFFFFFFFFFFFF_u128).to_u64!
 
-      if high >> 49 == 1
-        high = high & 0x7fffffffffff
+      if (high >> 49) == 1
+        high &= 0x7fffffffffff_u64
         high |= TWO_HIGHEST_BITS_SET
-        high |= (exponent & 0x3fff) << 47
+        high |= (exponent.to_u64 & 0x3fff_u64) << 47
       else
-        high |= exponent << 49
+        high |= exponent.to_u64 << 49
       end
 
-      if is_negative
-        high |= SIGN_BIT_MASK
-      end
+      high |= SIGN_BIT_MASK if is_negative
 
       {low, high}
     end
 
     protected def self.round_exact(exponent, significand)
       if exponent < MIN_EXPONENT
-        if significand.to_big_i == 0
+        if significand.each_byte.all? { |b| b == 0x30_u8 }
           round = MIN_EXPONENT - exponent
           exponent += round
-        elsif trailing_zeros = TRAILING_ZEROS_REGEX.match(significand)
-          round = [(MIN_EXPONENT - exponent),
-                   trailing_zeros[1].size].min
-          significand = significand[0...-round]
-          exponent += round
+        else
+          tz = count_trailing_zeros(significand)
+          if tz > 0
+            round = {MIN_EXPONENT - exponent, tz}.min
+            significand = significand[0, significand.bytesize - round]
+            exponent += round
+          end
         end
-      elsif significand.size > MAX_DIGITS_OF_PRECISION
-        trailing_zeros = TRAILING_ZEROS_REGEX.match(significand)
-        if trailing_zeros
-          round = [trailing_zeros[1].size,
-                   (significand.size - MAX_DIGITS_OF_PRECISION),
-                   (MAX_EXPONENT - exponent)].min
-          significand = significand[0...-round]
+      elsif significand.bytesize > MAX_DIGITS_OF_PRECISION
+        tz = count_trailing_zeros(significand)
+        if tz > 0
+          round = {tz, significand.bytesize - MAX_DIGITS_OF_PRECISION, MAX_EXPONENT - exponent}.min
+          significand = significand[0, significand.bytesize - round]
           exponent += round
         end
       end
@@ -223,13 +206,12 @@ struct BSON
 
     protected def self.clamp(exponent, significand)
       if exponent > MAX_EXPONENT
-        if significand.to_big_i == 0
+        if significand.each_byte.all? { |b| b == 0x30_u8 }
           adjust = exponent - MAX_EXPONENT
           significand = "0"
         else
-          adjust = [(exponent - MAX_EXPONENT),
-                    MAX_DIGITS_OF_PRECISION - significand.size].min
-          significand + "0" * adjust
+          adjust = {exponent - MAX_EXPONENT, MAX_DIGITS_OF_PRECISION - significand.bytesize}.min
+          significand += "0" * adjust
         end
         exponent -= adjust
       end
@@ -237,71 +219,65 @@ struct BSON
       {exponent, significand}
     end
 
-    protected def self.validate_range!(exponent : Int32, significand : BigInt)
+    protected def self.validate_range!(exponent : Int32, significand : UInt128)
       unless valid_significand?(significand) && valid_exponent?(exponent)
         raise InvalidRange.new
       end
     end
 
-    protected def self.valid_significand?(significand : BigInt)
-      significand.to_s.size <= MAX_DIGITS_OF_PRECISION
+    protected def self.valid_significand?(significand : UInt128)
+      significand < 10000000000000000000000000000000000_u128
     end
 
     protected def self.valid_exponent?(exponent : Int32)
       exponent <= MAX_EXPONENT && exponent >= MIN_EXPONENT
     end
 
-    private def create_string
-      if use_scientific_notation?
-        exp_pos_sign = exponent < 0 ? "" : "+"
-        if significand.size > 1
-          str = "#{significand[0]}.#{significand[1..-1]}E#{exp_pos_sign}#{scientific_exponent}"
-        else
-          str = "#{significand}E#{exp_pos_sign}#{scientific_exponent}"
-        end
-      elsif exponent < 0
-        if significand.size > exponent.abs
-          decimal_point_index = significand.size - exponent.abs
-          str = "#{significand[0..decimal_point_index - 1]}.#{significand[decimal_point_index..-1]}"
-        else
-          left_zero_pad = (exponent + significand.size).abs
-          str = "0.#{"0" * left_zero_pad}#{significand}"
-        end
+    private def self.count_trailing_zeros(s : String) : Int32
+      count = 0
+      (s.bytesize - 1).downto(0) do |i|
+        break unless s.to_unsafe[i] == 0x30_u8
+        count += 1
       end
-      str || significand
+      count < s.bytesize ? count : 0
     end
 
-    @scientific_exponent : BigInt?
+    private def write_value(io : IO) : Nil
+      two_highest = (@high & TWO_HIGHEST_BITS_SET) == TWO_HIGHEST_BITS_SET
+      if two_highest
+        exp = ((@high & 0x1fffe00000000000_u64) >> 47).to_i - EXPONENT_OFFSET
+        sig = "0"
+      else
+        exp = ((@high & 0x7fff800000000000_u64) >> 49).to_i - EXPONENT_OFFSET
+        sig_val = (@high & 0x1ffffffffffff_u64).to_u128 << 64 | @low
+        sig = sig_val.to_s
+      end
 
-    private def scientific_exponent
-      @scientific_exponent ||= (significand.size - 1) + exponent
-    end
+      sci_exp = (sig.bytesize - 1) + exp
 
-    private def use_scientific_notation?
-      exponent > 0 || scientific_exponent < -6
-    end
-
-    @exponent : BigInt?
-
-    private def exponent
-      @exponent ||= two_highest_bits_set? ? ((@high & 0x1fffe00000000000) >> 47) - Decimal128::EXPONENT_OFFSET : ((@high & 0x7fff800000000000) >> 49) - Decimal128::EXPONENT_OFFSET
-    end
-
-    @significand : String?
-
-    private def significand
-      @significand ||= two_highest_bits_set? ? "0" : bits_to_significand.to_s
-    end
-
-    private def bits_to_significand
-      significand = @high & 0x1ffffffffffff
-      significand = significand << 64
-      significand |= @low
-      significand
-    end
-
-    private def two_highest_bits_set?
-      @high & TWO_HIGHEST_BITS_SET == TWO_HIGHEST_BITS_SET
+      if exp > 0 || sci_exp < -6
+        io << sig.to_unsafe[0].chr
+        if sig.bytesize > 1
+          io << '.'
+          io.write(sig.to_slice[1..])
+        end
+        io << 'E'
+        io << '+' if sci_exp >= 0
+        sci_exp.to_s(io)
+      elsif exp < 0
+        if sig.bytesize > exp.abs
+          dec = sig.bytesize - exp.abs
+          io.write(sig.to_slice[0...dec])
+          io << '.'
+          io.write(sig.to_slice[dec..])
+        else
+          io << "0."
+          (exp + sig.bytesize).abs.times { io << '0' }
+          io << sig
+        end
+      else
+        io << sig
+      end
     end
   end
 end

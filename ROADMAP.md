@@ -21,16 +21,19 @@ This project is an active, organization-owned fork (`alumna/bson.cr`) originally
 - [x] **Crystal 1.20 Modernization:** Update `shard.yml` dependencies, bump GitHub actions to `ubuntu-24.04`, and fix `Mutex` deprecations (now `Sync::Mutex`).
 - [x] **BSON Binary Vector (`0x09`):** Scaffold `0x09` subtype in the enum and implement specific padding/decoding logic passing `float32`, `int8`, and `packed_bit` validation tests.
 
-### Phase 2: BSON Corpus Sync (Part A - Standard Types) [Pending]
+### Phase 2: BSON Corpus Sync (Part A - Standard Types) [Done]
 - [x] **Target:** Update the out-of-date corpus test files in `spec/corpus/`.
 - [x] **Files to Sync:** `array`, `binary`, `boolean`, `datetime`, `document`, `string`, `double`, `int32`, `int64`, `null`, `maxkey`, `minkey`, `symbol`, `undefined`
 - [x] **Goal:** Replace existing JSONs. Run the spec suite, fix breakages. Address edge cases in parsing.
 
-### Phase 3: BSON Corpus Sync (Part B - Complex Types) [Pending]
-- **Target:** Update remaining complex corpus tests.
-- **Files to Sync:** `decimal128-*.json`, `code`, `code_w_scope`, `dbref`, `regex`, `timestamp`, `oid`, `top`, `multi-type`, `multi-type-deprecated`, `dbpointer`
-- **Goal:** Resolve `ignore_json_roundtrip` hacks added by the original author. Ensure `Decimal128` string parsing can handle the modern spec cases.
+### Phase 3: BSON Corpus Sync (Part B - Complex Types) [Done]
+- [x] **Target:** Update remaining complex corpus tests.
+- [x] **Files to Sync:** `decimal128-*.json`, `code`, `code_w_scope`, `dbref`, `regex`, `timestamp`, `oid`, `top`, `multi-type`, `multi-type-deprecated`, `dbpointer`
+- [x] **Goal:** Resolve `ignore_json_roundtrip` hacks added by the original author. Ensure `Decimal128` string parsing can handle the modern spec cases.
 
-### Phase 4: BSON Binary Encrypted & Extended JSON Audit [Pending]
+### Phase 4: BSON Binary Encrypted & Extended JSON Audit [Done]
 - **Target:** Implement `bson-binary-encrypted/binary-encrypted.md`.
 - **Goal:** Ensure `to_json` (Relaxed) and `to_canonical_extjson` (Canonical) outputs perfectly align with the MongoDB specs for subtype `0x06`. We don't need cryptography implementations here, just accurate binary enveloping and extJSON conversion.
+- **Native IEEE-754 Bitwise Implementation**: We can replace the slow String/Regex `Decimal128` parser with a direct native string parser that uses fast `UInt64` math to directly calculate the `exponent` and `significand` bits. 
+- **Zero-Allocation ExtJSON Building**: ExtJSON is heavily utilized. Currently, strings are duplicated, and elements are rebuilt using nested `JSON::Builder` objects which closures. Solution: stream data directly into the JSON buffer with zero intermediate heap allocations.
+- **Refined PullParser Handling**: The recent updates to Crystal 1.20 make string keys significantly faster, allowing us to drop any lingering `.to_s` conversions during parsing.

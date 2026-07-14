@@ -5,7 +5,7 @@ struct Int32
   def to_canonical_extjson(builder : JSON::Builder)
     builder.object {
       builder.string("$numberInt")
-      builder.scalar(self.to_s)
+      builder.string { |io| self.to_s(io) }
     }
   end
 end
@@ -17,7 +17,7 @@ struct Int64
   def to_canonical_extjson(builder : JSON::Builder)
     builder.object {
       builder.string("$numberLong")
-      builder.scalar(self.to_s)
+      builder.string { |io| self.to_s(io) }
     }
   end
 end
