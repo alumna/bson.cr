@@ -31,6 +31,9 @@ This project is an active, organization-owned fork (`alumna/bson.cr`) originally
 - [x] **Files to Sync:** `decimal128-*.json`, `code`, `code_w_scope`, `dbref`, `regex`, `timestamp`, `oid`, `top`, `multi-type`, `multi-type-deprecated`, `dbpointer`
 - [x] **Goal:** Resolve `ignore_json_roundtrip` hacks added by the original author. Ensure `Decimal128` string parsing can handle the modern spec cases.
 
-### Phase 4: BSON Binary Encrypted & Extended JSON Audit [Pending]
+### Phase 4: BSON Binary Encrypted & Extended JSON Audit [Done]
 - **Target:** Implement `bson-binary-encrypted/binary-encrypted.md`.
 - **Goal:** Ensure `to_json` (Relaxed) and `to_canonical_extjson` (Canonical) outputs perfectly align with the MongoDB specs for subtype `0x06`. We don't need cryptography implementations here, just accurate binary enveloping and extJSON conversion.
+- **Native IEEE-754 Bitwise Implementation**: We can replace the slow String/Regex `Decimal128` parser with a direct native string parser that uses fast `UInt64` math to directly calculate the `exponent` and `significand` bits. 
+- **Zero-Allocation ExtJSON Building**: ExtJSON is heavily utilized. Currently, strings are duplicated, and elements are rebuilt using nested `JSON::Builder` objects which closures. Solution: stream data directly into the JSON buffer with zero intermediate heap allocations.
+- **Refined PullParser Handling**: The recent updates to Crystal 1.20 make string keys significantly faster, allowing us to drop any lingering `.to_s` conversions during parsing.

@@ -7,7 +7,7 @@ struct Time
       builder.string("$date")
       builder.object {
         builder.string("$numberLong")
-        builder.string(self.to_unix_ms.to_s)
+        builder.string { |io| self.to_unix_ms.to_s(io) }
       }
     }
   end
@@ -18,10 +18,12 @@ struct Time
   def to_relaxed_extjson(builder : JSON::Builder)
     builder.object {
       builder.string("$date")
-      if millisecond == 0
-        builder.string(self.to_rfc3339(fraction_digits: 0))
-      else
-        builder.string(self.to_rfc3339(fraction_digits: 3))
+      builder.string do |io|
+        if millisecond == 0
+          self.to_rfc3339(fraction_digits: 0, io: io)
+        else
+          self.to_rfc3339(fraction_digits: 3, io: io)
+        end
       end
     }
   end

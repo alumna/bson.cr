@@ -160,12 +160,12 @@ struct BSON
 
     def []=(key : String, value : BigDecimal)
       field(:decimal128, key)
-      @io.write Decimal128.new(value).bytes
+      Decimal128.new(value).to_io(@io)
     end
 
     def []=(key : String, value : Decimal128)
       field(:decimal128, key)
-      @io.write value.bytes
+      value.to_io(@io)
     end
 
     def []=(key : String, value : Code)

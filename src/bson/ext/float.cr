@@ -5,7 +5,13 @@ struct Float64
   def to_canonical_extjson(builder : JSON::Builder)
     builder.object {
       builder.string("$numberDouble")
-      builder.scalar(to_s.gsub('e', 'E'))
+      builder.string do |io|
+        # [Performance] Write directly to IO while converting 'e' to 'E' without string allocations
+        str = self.to_s
+        str.each_char do |c|
+          io << (c == 'e' ? 'E' : c)
+        end
+      end
     }
   end
 end
