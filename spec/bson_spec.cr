@@ -177,7 +177,9 @@ describe BSON do
       bson.each.map { |(k, v, code, subtype)|
         if v.is_a? Bytes
           code.should eq BSON::Element::Binary
-          REFERENCE_TUPLE[k].should eq BSON::Binary.new(subtype.not_nil!, v)
+          if st = subtype
+            REFERENCE_TUPLE[k].should eq BSON::Binary.new(st, v)
+          end
         elsif v.is_a? BSON && code == BSON::Element::Array
           v.each { |key, value|
             REFERENCE_TUPLE[k].as(Array)[key.to_i32].should eq value
@@ -193,7 +195,9 @@ describe BSON do
       bson.each { |k, v, code, subtype|
         if v.is_a? Bytes
           code.should eq BSON::Element::Binary
-          REFERENCE_TUPLE[k].should eq BSON::Binary.new(subtype.not_nil!, v)
+          if st = subtype
+            REFERENCE_TUPLE[k].should eq BSON::Binary.new(st, v)
+          end
         elsif v.is_a? BSON && code == BSON::Element::Array
           v.each { |key, value|
             REFERENCE_TUPLE[k].as(Array)[key.to_i32].should eq value

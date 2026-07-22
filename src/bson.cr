@@ -1,3 +1,5 @@
+{% raise "alumna/bson.cr requires a little-endian architecture" if flag?(:big_endian) %}
+
 require "json"
 require "base64"
 require "./bson/helpers/*"
@@ -73,7 +75,7 @@ struct BSON
     size = Int32.from_io(io, IO::ByteFormat::LittleEndian)
     Decoder.check_size! size, 5
     @data = Bytes.new(size)
-    @data.to_unsafe.as(Pointer(Int32)).copy_from(pointerof(size), 4)
+    IO::ByteFormat::LittleEndian.encode(size, @data[0, 4])
     io.read_fully(@data[4..])
   end
 
@@ -199,8 +201,7 @@ struct BSON
   # puts bson.to_json # => {"key":"value","key2":"value2"}
   # ```
   def append(**args)
-    size = @data.to_unsafe.as(Pointer(Int32)).value
-    io = IO::Memory.new(size)
+    io = IO::Memory.new(@data.size)
     io.write @data[4...-1]
     builder = Builder.new(io)
     args.each { |key, value|
@@ -219,9 +220,8 @@ struct BSON
   # puts bson.to_json # => {"key":"value","key2":"value2"}
   # ```
   def append(other : BSON)
-    size = @data.to_unsafe.as(Pointer(Int32)).value
     # [Performance] Append raw bytes directly, avoiding field decoding/encoding overhead
-    io = IO::Memory.new(size + other.size - 5)
+    io = IO::Memory.new(@data.size + other.size - 5)
     io.write @data[4...-1]
     io.write other.data[4...-1]
     builder = Builder.new(io)

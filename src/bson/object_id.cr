@@ -26,10 +26,11 @@ struct BSON
     @@counter : Int32 = rand(0x1000000)
     @@mutex = Sync::Mutex.new
     # Fixed random bytes in order to have a better ordering.
-    @@random_bytes : Bytes = Random.new.random_bytes(5)
+    @@random_bytes : Bytes = Random::Secure.random_bytes(5)
 
     # Initialize from a hex string representation.
     def initialize(str : String)
+      raise ArgumentError.new("ObjectId string must be exactly 24 hex characters") unless str.bytesize == 24
       @data = str.hexbytes
     end
 
@@ -68,7 +69,9 @@ struct BSON
 
     # Return a string hex representation of the ObjectId.
     def to_s(io : IO) : Nil
-      io << @data.hexstring
+      buf = uninitialized UInt8[24]
+      @data.hexstring(buf.to_unsafe)
+      io.write_string(buf.to_slice)
     end
 
     def to_json(builder : JSON::Builder)
@@ -81,7 +84,7 @@ struct BSON
     def to_canonical_extjson(builder : JSON::Builder)
       builder.object {
         builder.string("$oid")
-        builder.scalar(@data.hexstring)
+        builder.string { |io| self.to_s(io) }
       }
     end
 
@@ -91,8 +94,13 @@ struct BSON
 
     # Validate that a provided string is a well formated ObjectId.
     def self.validate(id : String) : Bool
-      # [Performance] Check length and valid characters without allocating a new Bytes slice
-      id.bytesize == 24 && id.each_char.all?(&.hex?)
+      return false unless id.bytesize == 24
+      id.each_byte do |b|
+        return false unless (0x30_u8 <= b <= 0x39_u8) || # '0'-'9'
+                            (0x61_u8 <= b <= 0x66_u8) || # 'a'-'f'
+                            (0x41_u8 <= b <= 0x46_u8)    # 'A'-'F'
+      end
+      true
     end
   end
 end

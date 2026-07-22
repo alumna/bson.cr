@@ -23,14 +23,26 @@ struct BSON
       str
     end
 
-    # [Simplicity] Extracted regex options parsing to reduce code duplication
-    protected def parse_regex_options(opts : String) : Regex::Options
+    # [Performance] Parse regex options directly from raw byte pointer without heap string allocations
+    protected def parse_regex_options(ptr : Pointer(UInt8), size : Int) : Regex::Options
       modifiers = Regex::Options::None
-      modifiers |= Regex::Options::IGNORE_CASE if opts.includes?('i')
-      modifiers |= Regex::Options::MULTILINE if opts.includes?('m') || opts.includes?('s')
-      modifiers |= Regex::Options::EXTENDED if opts.includes?('x')
-      modifiers |= Regex::Options::UTF_8 if opts.includes?('u')
+      size.times do |i|
+        case (ptr + i).value
+        when 0x69_u8 # 'i'
+          modifiers |= Regex::Options::IGNORE_CASE
+        when 0x6d_u8, 0x73_u8 # 'm', 's'
+          modifiers |= Regex::Options::MULTILINE
+        when 0x78_u8 # 'x'
+          modifiers |= Regex::Options::EXTENDED
+        when 0x75_u8 # 'u'
+          modifiers |= Regex::Options::UTF_8
+        end
+      end
       modifiers
+    end
+
+    protected def parse_regex_options(opts : String) : Regex::Options
+      parse_regex_options(opts.to_unsafe, opts.bytesize)
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -63,13 +75,13 @@ struct BSON
         size = (pointer + pos).as(Pointer(Int32)).value
         check_size! size, 5 unless skip_checks
         check_overflow! pos, size, max_pos unless skip_checks
-        value = BSON.new(Bytes.new(pointer + pos, size, read_only: true))
+        value = BSON.new(Bytes.new(pointer + pos, size))
         pos += size
       when Element::Array
         size = (pointer + pos).as(Pointer(Int32)).value
         check_size! size, 5 unless skip_checks
         check_overflow! pos, size, max_pos unless skip_checks
-        value = BSON.new(Bytes.new(pointer + pos, size, read_only: true))
+        value = BSON.new(Bytes.new(pointer + pos, size))
         pos += size
       when Element::Binary
         size = (pointer + pos).as(Pointer(Int32)).value
@@ -119,10 +131,10 @@ struct BSON
         raise "Invalid Regexp field (string overflow): #{key}" if max_pos && (pos + opts_size) >= max_pos
 
         check_size! opts_size unless skip_checks
-        opts = decode_string!(pointer + pos, opts_size, skip_checks: skip_checks)
+        regex_options = parse_regex_options(pointer + pos, opts_size)
         pos += opts_size + 1
 
-        value = Regex.new(pattern, Decoder.parse_regex_options(opts))
+        value = Regex.new(pattern, regex_options)
       when Element::DBPointer
         str_size = (pointer + pos).as(Pointer(Int32)).value
         check_size! str_size unless skip_checks
@@ -161,7 +173,7 @@ struct BSON
         doc_size = (pointer + pos).as(Pointer(Int32)).value
         check_size! doc_size, 5 unless skip_checks
         check_overflow! pos, doc_size, max_pos unless skip_checks
-        scope = BSON.new(Bytes.new(pointer + pos, doc_size, read_only: true))
+        scope = BSON.new(Bytes.new(pointer + pos, doc_size))
         pos += doc_size
         check_size! field_size, str_size + doc_size + 8 unless skip_checks
         value = Code.new(js_code, scope)
@@ -178,9 +190,8 @@ struct BSON
         value = (pointer + pos).as(Pointer(Int64)).value
         pos += 8
       when Element::Decimal128
-        bytes = Bytes.new(16)
-        bytes.copy_from(pointer + pos, 16)
-        value = Decimal128.new(bytes)
+        # [Performance] Read Decimal128 directly from raw pointer slice without heap allocation or memory copy
+        value = Decimal128.new(Bytes.new(pointer + pos, 16, read_only: true))
         pos += 16
       when Element::MinKey
         value = MinKey.new
@@ -280,7 +291,8 @@ struct BSON
       when .begin_object?
         pull.read_begin_object
         if pull.kind.end_object?
-          builder[key] = BSON.new(Builder.new.to_bson)
+          # [Performance] Directly create an empty BSON document without allocating a Builder and intermediate buffers
+          builder[key] = BSON.new
         else
           inner_key = pull.read_object_key
           raise "Bad document key" if inner_key.includes?('\u0000')
