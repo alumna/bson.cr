@@ -62,6 +62,10 @@ struct BSON
         result
       end
 
+      # Parses vector data from a raw byte slice.
+      #
+      # NOTE: Returns a Vector holding a zero-copy slice view over the underlying buffer memory.
+      # Modifying the original byte buffer will modify the vector's content.
       def self.from_binary_data(data : Bytes) : self
         raise Exception.new("Vector data too short") if data.size < 2
         dtype = DataType.from_value?(data[0]) || raise Exception.new("Unknown vector dtype: #{data[0]}")
@@ -105,17 +109,41 @@ struct BSON
       Vector.from_binary_data(@data)
     end
 
-    def self.from_vector(vector : Indexable(Float32) | Indexable(Float64)) : self
+    def self.from_vector(vector : Indexable(Float32)) : self
       payload = Bytes.new(2 + vector.size * 4)
       payload[0] = Vector::DataType::Float32.value
       payload[1] = 0_u8
-      # IO::Memory wrap allows us to safely guarantee Little Endian format conversion
-      io = IO::Memory.new(payload[2..])
-      vector.each { |val| io.write_bytes(val.to_f32!, IO::ByteFormat::LittleEndian) }
+      vector.each_with_index do |val, i|
+        IO::ByteFormat::LittleEndian.encode(val, payload[2 + i * 4, 4])
+      end
       new(SubType::Vector, payload)
     end
 
-    def self.from_vector(vector : Indexable(Int8) | Indexable(Int32)) : self
+    def self.from_vector(vector : Indexable(Float64)) : self
+      payload = Bytes.new(2 + vector.size * 4)
+      payload[0] = Vector::DataType::Float32.value
+      payload[1] = 0_u8
+      vector.each_with_index do |val, i|
+        f32_val = val.to_f32!
+        if val.finite? && f32_val.infinite?
+          raise Exception.new("Float64 value #{val} overflows Float32 range during vector conversion")
+        end
+        IO::ByteFormat::LittleEndian.encode(f32_val, payload[2 + i * 4, 4])
+      end
+      new(SubType::Vector, payload)
+    end
+
+    def self.from_vector(vector : Indexable(Int8)) : self
+      payload = Bytes.new(2 + vector.size)
+      payload[0] = Vector::DataType::Int8.value
+      payload[1] = 0_u8
+      vector.each_with_index do |val, i|
+        payload[2 + i] = val.to_u8!
+      end
+      new(SubType::Vector, payload)
+    end
+
+    def self.from_vector(vector : Indexable(Int32)) : self
       payload = Bytes.new(2 + vector.size)
       payload[0] = Vector::DataType::Int8.value
       payload[1] = 0_u8
@@ -126,7 +154,18 @@ struct BSON
       new(SubType::Vector, payload)
     end
 
-    def self.from_packed_bit_vector(vector : Indexable(UInt8) | Indexable(Int32), padding : Int = 0) : self
+    def self.from_packed_bit_vector(vector : Indexable(UInt8), padding : Int = 0) : self
+      raise Exception.new("Invalid PACKED_BIT vector: padding must be between 0 and 7") unless 0 <= padding <= 7
+      payload = Bytes.new(2 + vector.size)
+      payload[0] = Vector::DataType::PackedBit.value
+      payload[1] = padding.to_u8!
+      vector.each_with_index do |val, i|
+        payload[2 + i] = val
+      end
+      new(SubType::Vector, payload)
+    end
+
+    def self.from_packed_bit_vector(vector : Indexable(Int32), padding : Int = 0) : self
       raise Exception.new("Invalid PACKED_BIT vector: padding must be between 0 and 7") unless 0 <= padding <= 7
       payload = Bytes.new(2 + vector.size)
       payload[0] = Vector::DataType::PackedBit.value

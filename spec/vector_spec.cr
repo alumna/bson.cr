@@ -19,13 +19,13 @@ describe "BSON Binary Vector (Subtype 9)" do
             # Check decoding
             binary : BSON::Binary? = nil
             bson.each do |k, v, code, subtype|
-              if k == test_key
-                binary = BSON::Binary.new(subtype.not_nil!, v.as(Bytes))
+              if k == test_key && subtype
+                binary = BSON::Binary.new(subtype, v.as(Bytes))
                 break # Short-circuit BSON loop once found
               end
             end
-            binary = binary.not_nil!
 
+            raise "Binary vector element not found" unless binary
             binary.subtype.vector?.should be_true
 
             vec = binary.to_vector
@@ -95,12 +95,16 @@ describe "BSON Binary Vector (Subtype 9)" do
                 bson = BSON.new(canonical_bson.as_s.hexbytes)
                 bin : BSON::Binary? = nil
                 bson.each do |k, v, code, subtype|
-                  if k == test_key
-                    bin = BSON::Binary.new(subtype.not_nil!, v.as(Bytes))
+                  if k == test_key && subtype
+                    bin = BSON::Binary.new(subtype, v.as(Bytes))
                     break
                   end
                 end
-                bin.not_nil!.to_vector
+                if target_bin = bin
+                  target_bin.to_vector
+                else
+                  raise "Vector element not found"
+                end
               end
             elsif vector_any = test["vector"]?
               expect_raises(Exception) do

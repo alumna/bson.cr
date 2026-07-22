@@ -2,6 +2,9 @@ struct BSON
   private class Builder
     getter io : IO::Memory
 
+    # Pre-allocated static string representation for small array/field integer indices (0..127) to avoid heap allocations
+    STATIC_INDICES = Array(String).new(128) { |i| i.to_s }
+
     def initialize(@io : IO::Memory = IO::Memory.new); end
 
     private def field(code : Element, key : String)
@@ -56,8 +59,8 @@ struct BSON
     def []=(key : String, value : Array)
       array_builder = Builder.new
       value.each_with_index { |item, index|
-        # [Performance] Avoid string interpolation overhead
-        str_index = index.to_s
+        # [Performance] Use pre-allocated static index strings for common indices (0..127) to avoid heap allocations
+        str_index = index < 128 ? STATIC_INDICES.unsafe_fetch(index) : index.to_s
         if item.responds_to? :to_bson
           array_builder[str_index] = item.to_bson
         else
@@ -222,8 +225,8 @@ struct BSON
       fields = @io.to_slice
       size = 5 + fields.size
       data = Bytes.new(size)
-      IO::ByteFormat::LittleEndian.encode(size, data[0...4])
-      data[4...-1].copy_from(fields)
+      IO::ByteFormat::LittleEndian.encode(size, data[0, 4])
+      data[4, fields.size].copy_from(fields)
       data
     end
   end
