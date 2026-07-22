@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.0 - 2026-07-22
+
+### Added
+* **arch:** Added an explicit compile-time guard (`if flag?(:big_endian)`) to reject big-endian build targets safely at compile time.
+* **object_id:** Added strict 24-character length validation in `BSON::ObjectId#initialize(str : String)`.
+
+### Changed
+* **object_id:** Switched process-wide random byte generation (`@@random_bytes`) to `Random::Secure` (CSPRNG) for cryptographic process uniqueness.
+* **binary:** Split `BSON::Binary.from_vector` (`Int8` vs `Int32`) and `from_packed_bit_vector` (`UInt8` vs `Int32`) into distinct overloads to eliminate dead bounds checks and improve error messaging.
+* **binary:** Added overflow validation for `Float64` vector inputs when converting to `Float32`.
+
+### Performance
+* **object_id:** Replaced heap string allocation in `ObjectId#to_s(io)` with a stack-allocated buffer (`UInt8[24]`) for zero-allocation IO formatting.
+* **object_id:** Updated `ObjectId#to_canonical_extjson` to stream hex characters directly into `JSON::Builder`'s IO without intermediate string allocations.
+* **object_id:** Replaced iterator-based `ObjectId.validate` with a single-pass ASCII byte range loop.
+* **binary:** Replaced `IO::Memory` instantiation in `BSON::Binary.from_vector(Float32/Float64)` with direct `IO::ByteFormat::LittleEndian.encode` into pre-allocated payload slices.
+* **builder:** Introduced pre-allocated static index strings (`STATIC_INDICES`) with `unsafe_fetch` for array indices `0..127` in `BSON::Builder`, eliminating heap string allocations during BSON array construction.
+* **decoder:** Refactored `parse_regex_options` in `BSON::Decoder` to parse option flags directly from `Pointer(UInt8)` without intermediate `String` allocations.
+* **decoder:** Optimized empty JSON object `{}` parsing to instantiate `BSON.new` directly, cutting intermediate heap allocations from 3 down to 1.
+* **decoder:** Updated `Decimal128` field decoding to read from zero-copy pointer slices, eliminating temporary slice heap allocations and memory copies.
+* **extjson:** Refactored `Regex#to_canonical_extjson` to stream option flags directly into the JSON builder's IO stream.
+
+### Fixed
+* **core:** Corrected byte-order initialization in `BSON.new(io : IO)` using explicit `IO::ByteFormat::LittleEndian.encode`.
+* **decoder:** Widened `parse_regex_options` size parameter to `Int` to fix `LibC::SizeT` (`UInt64`) compiler type mismatch on 64-bit systems.
+
 ## 0.6.0 - 2026-07-14
 
 ### Added

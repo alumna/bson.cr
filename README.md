@@ -14,7 +14,7 @@ It is expected to be faster, using less memory, and to strictly follow the newes
 On a technical level, the current update already includes:
 
 * **MongoDB 8.0 & Spec Compliance:** Full support for the most recent BSON specification, including the new Binary `Vector` types (Float32, Int8, PackedBit). Furthermore, it strictly passes all 1,025 tests in the official MongoDB BSON corpus, sealing vulnerabilities and ensuring perfect type preservation.
-* **Zero-Allocation Extended JSON:** Building JSON boundaries no longer churns the garbage collector. Instead of allocating temporary strings on the heap for numbers, dates, and base64 payloads, it now streams bytes directly into memory (`IO`), reducing memory overhead.
+* **Zero-Allocation Core & ExtJSON:** Core workflows (including ObjectId handling, number decoding, and JSON streaming) process data directly in memory without creating temporary objects on the heap. Reduced GC pressure, increased throughput and higher peformance.
 * **Native `Decimal128`:** The 128-bit decimal implementation was completely rewritten. The C-bindings (`LibGMP`/`BigInt`) were removed in favor of pure-Crystal `UInt128` bitwise operations, and the struct was reduced strictly to 16 bytes, as per the specification. It is now natively compiled and is deeply optimized.
 * **Crystal 1.20 Ready:** Updated for the latest Crystal 1.20.x branch, replacing deprecated synchronization primitives (now using `Sync::Mutex`) and optimizing byte-level parsing logic.
 
@@ -245,9 +245,9 @@ puts Data.from_bson(data.to_bson).to_json
 # => {"field":"value","counter":0,"nested":{"array":["element",1]}}
 ```
 
-## Validating ObjectIds
+## Validating and creating ObjectIds
 
-You can validate that a provided string is a valid MongoDB ObjectId before instantiating it with `.new()` with:
+ObjectIds are constructed securely using `Random::Secure` (CSPRNG) for process uniqueness. You can validate that a provided string is a valid 24-character hex ObjectId before instantiating it:
 
 ```crystal
 # => true
@@ -256,8 +256,13 @@ p BSON::ObjectId.validate("57e193d7a9cc81b4027498b5")
 # => false
 p BSON::ObjectId.validate("qwerty")
 
-# => false
-p BSON::ObjectId.validate("1234567890abcdefghijklmn")
+# => false (must be exactly 24 characters)
+p BSON::ObjectId.validate("1234567890abcdefghijklmn123456")
+
+# Bonus: formatting to an IO is completely zero-allocation via a stack buffer
+io = IO::Memory.new
+oid = BSON::ObjectId.new
+oid.to_s(io)
 ```
 
 ## Decimal128
