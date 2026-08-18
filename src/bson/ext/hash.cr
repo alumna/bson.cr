@@ -30,19 +30,47 @@ class Hash(K, V)
         hash[k] = {{ atyp }}.from_bson(v)
       {% end %}
 
+      # Time/DateTime and Regex/BSON::Regex each emit two `when` branches.
+      # Inspect the whole union first so Hash(..., BSON::Value) does not emit the same `when` twice.
+      {% has_time = types.any? { |t| t <= Time } %}
+      {% has_date_time = types.any? { |t| t <= BSON::DateTime } %}
+      {% has_regex = types.any? { |t| t <= ::Regex } %}
+      {% has_bson_regex = types.any? { |t| t <= BSON::Regex } %}
+      {% if has_time && has_date_time %}
+      when {BSON::DateTime, _}
+        hash[k] = v.as(BSON::DateTime)
+      when {Time, _}
+        hash[k] = v.as(Time)
+      {% elsif has_time %}
+      when {BSON::DateTime, _}
+        hash[k] = v.as(BSON::DateTime).to_time
+      when {Time, _}
+        hash[k] = v.as(Time)
+      {% elsif has_date_time %}
+      when {BSON::DateTime, _}
+        hash[k] = v.as(BSON::DateTime)
+      when {Time, _}
+        hash[k] = BSON::DateTime.new(v.as(Time))
+      {% end %}
+      {% if has_regex && has_bson_regex %}
+      when {BSON::Regex, _}
+        hash[k] = v.as(BSON::Regex)
+      when {::Regex, _}
+        hash[k] = v.as(::Regex)
+      {% elsif has_regex %}
+      when {BSON::Regex, _}
+        hash[k] = v.as(BSON::Regex).to_regex
+      when {::Regex, _}
+        hash[k] = v.as(::Regex)
+      {% elsif has_bson_regex %}
+      when {BSON::Regex, _}
+        hash[k] = v.as(BSON::Regex)
+      when {::Regex, _}
+        hash[k] = BSON::Regex.new(v.as(::Regex))
+      {% end %}
       {% for typ in types.uniq %}
-        {% if typ <= Hash || typ <= Array %}
+        {% if typ <= Hash || typ <= Array || typ <= Time || typ <= BSON::DateTime || typ <= ::Regex || typ <= BSON::Regex %}
 
-        {% elsif typ <= Time %}
-        when {BSON::DateTime, _}
-          hash[k] = v.as(BSON::DateTime).to_time
-        when {Time, _}
-          hash[k] = v.as(Time)
-        {% elsif typ <= ::Regex %}
-        when {BSON::Regex, _}
-          hash[k] = v.as(BSON::Regex).to_regex
-        when {::Regex, _}
-          hash[k] = v.as(::Regex)
         {% elsif (typ <= BSON::Serializable || typ.class.has_method? :from_bson) %}
         when { BSON, _ }
           hash[k] = {{ typ }}.from_bson(v)

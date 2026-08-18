@@ -29,6 +29,7 @@ module BSON::Serializable
         {% end %}
 
         # [Performance] Traverse the BSON document exactly once (O(M)) instead of calling `fetch` for each property (O(N*M))
+        # Time/DateTime and Regex/BSON::Regex: one `when` pair per field union, so BSON::Value does not emit the same `when` twice.
         bson.each do |key, bson_value, _code, _subtype|
           case key
           {% for ivar in @type.instance_vars %}
@@ -37,33 +38,50 @@ module BSON::Serializable
               {% bson_key = ann && ann[:key] ? ann[:key].id : (camelize ? ivar.name.camelcase(lower: camelize == "lower") : ivar.name) %}
               {% types = ivar.type.union_types.select { |t| t != Nil } %}
               {% number_conversion_added = false %}
+              {% has_time = types.any? { |t| t <= Time } %}
+              {% has_date_time = types.any? { |t| t <= BSON::DateTime } %}
+              {% has_regex = types.any? { |t| t <= ::Regex } %}
+              {% has_bson_regex = types.any? { |t| t <= BSON::Regex } %}
               when "{{ bson_key }}"
                 %found{ivar.name} = true
                 %var{ivar.name} = case bson_value
-                {% for typ in types %}
-                  {% if typ <= BSON::Serializable %}
-                  when BSON
-                    {{ typ }}.from_bson(bson_value)
-                  {% elsif typ <= Time %}
+                {% if has_time && has_date_time %}
+                  when BSON::DateTime
+                    bson_value
+                  when Time
+                    bson_value
+                {% elsif has_time %}
                   when BSON::DateTime
                     bson_value.to_time
                   when Time
                     bson_value.as(Time)
-                  {% elsif typ <= ::Regex %}
-                  when BSON::Regex
-                    bson_value.to_regex
-                  when ::Regex
-                    bson_value.as(::Regex)
-                  {% elsif typ <= BSON::DateTime %}
+                {% elsif has_date_time %}
                   when BSON::DateTime
                     bson_value
                   when Time
                     BSON::DateTime.new(bson_value)
-                  {% elsif typ <= BSON::Regex %}
+                {% end %}
+                {% if has_regex && has_bson_regex %}
+                  when BSON::Regex
+                    bson_value
+                  when ::Regex
+                    bson_value
+                {% elsif has_regex %}
+                  when BSON::Regex
+                    bson_value.to_regex
+                  when ::Regex
+                    bson_value.as(::Regex)
+                {% elsif has_bson_regex %}
                   when BSON::Regex
                     bson_value
                   when ::Regex
                     BSON::Regex.new(bson_value)
+                {% end %}
+                {% for typ in types %}
+                  {% if typ <= Time || typ <= BSON::DateTime || typ <= ::Regex || typ <= BSON::Regex %}
+                  {% elsif typ <= BSON::Serializable %}
+                  when BSON
+                    {{ typ }}.from_bson(bson_value)
                   {% elsif typ.class.has_method?(:from_bson) %}
                   when BSON, BSON::Value
                     {{ typ }}.from_bson(bson_value)

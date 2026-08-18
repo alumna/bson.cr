@@ -43,6 +43,7 @@ This project is an active fork (`alumna/bson.cr`) originally based on `elbywan/b
 - [x] `BigDecimal` support is optional: `require "bson/optional/big_decimal"`. The default path does not load LibGMP.
 - [x] ObjectId process-unique bytes are rebuilt after `fork` on Unix (`pthread_atfork`).
 - [x] `BSON.parse` / `parse?`, `from_json?`, `from_io?`, `BSON.build`, and public `BSON::Builder` for Cryomongo.
+- [x] `from_bson` writes one datetime pair and one regex pair so `BSON::Value` fields compile.
 
 ---
 

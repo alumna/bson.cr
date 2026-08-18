@@ -120,6 +120,7 @@ bson["far"] = BSON::DateTime.new(253_402_300_800_000_i64) # Y10K
 ```
 
 `BSON::Serializable` fields of type `Time` still work. The library converts `BSON::DateTime` to `Time`.
+A field of type `BSON::Value` keeps `BSON::DateTime`. `Array` and `Hash` of `BSON::Value` do the same.
 
 ### Regex
 
@@ -138,6 +139,7 @@ bson["re"] = /foo*/ix
 ```
 
 `BSON::Serializable` fields of type `Regex` still work. The library calls `#to_regex`.
+A field of type `BSON::Value` keeps `BSON::Regex`. `Array` and `Hash` of `BSON::Value` do the same.
 
 ### Vectors
 

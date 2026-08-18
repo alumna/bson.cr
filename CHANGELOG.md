@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1 - 2026-08-18
+
+### Fixed
+* **serializable:** `BSON::Value` has both `Time` and `DateTime`, and both regex types.
+  `from_bson` for `Serializable`, `Array`, and `Hash` now writes one `when` pair for each.
+  Fields of type `BSON::Value` or `Array(BSON::Value)` compile again.
+
 ## 0.8.0 - 2026-08-18
 
 ### Added
