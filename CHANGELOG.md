@@ -1,34 +1,51 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-08-18
 
 ### Added
-* **object_id:** Added `timestamp` (`UInt32`) and `generation_time` (`Time`) accessors. The timestamp is an unsigned 32-bit value, as required by the spec.
-* **binary:** Added `UuidRepresentation` and `as_uuid` helpers for standard, C#, Java, and Python UUID byte orders.
+* **datetime:** Added `BSON::DateTime` (`int64` milliseconds). Values outside Crystal `Time` (for example Y10K) are kept. Use `#to_time` / `#to_time?`.
+* **regex:** Added `BSON::Regex` with `pattern` and `options` as text. Decode does not compile PCRE. Use `#to_regex` / `#to_regex?` when you need a Crystal `Regex`.
+* **error:** Added `BSON::Error` for bad BSON bytes and bad Extended JSON.
 * **core:** Added `BSON.view` for a document that reads an existing buffer without a copy.
 * **core:** Added `BSON#canonicalize` to encode decoded values again. Degenerate array keys and regex options become canonical.
-* **core:** Added `BSON#append` with a block so many fields can be written with one buffer rebuild.
-* **spec:** Added prose tests for null bytes in keys and regex patterns, ObjectId timestamps, UUID representations, and packed-bit ignored bits.
+* **core:** Added `BSON.build`, public `BSON::Builder`, and `BSON#append` with a block so many fields can be written with one buffer rebuild.
+* **core:** Added `BSON.parse` / `parse?`, `from_json?`, and `from_io?`.
+* **object_id:** Added `timestamp` (`UInt32`) and `generation_time` (`Time`). The timestamp is unsigned, as required by the spec.
+* **object_id:** After `fork` on Unix, process-unique bytes and the counter are rebuilt.
+* **binary:** Added `UuidRepresentation` and `as_uuid` helpers for standard, C#, Java, and Python UUID byte orders.
+* **decimal128:** Added optional `require "bson/optional/big_decimal"` for `BigDecimal` convert.
+* **spec:** Added prose tests for null bytes, ObjectId timestamps, UUID representations, packed-bit ignored bits, DateTime Y10K, `BSON::Regex`, and `parse?`.
 
 ### Changed
-* **corpus:** Moved corpus JSON files to `spec/corpus/bson-corpus/tests/` and `spec/corpus/bson-binary-vector/tests/` to match the official MongoDB repository layout.
-* **regex:** `m` now maps to `MULTILINE_ONLY` and `s` maps to `DOTALL`. Option letters are written in alphabetical order: `i`, `m`, `s`, `u`, `x`.
+* Decode of BSON datetime now returns `BSON::DateTime` instead of `Time`.
+* Decode of BSON regex now returns `BSON::Regex` instead of Crystal `Regex`.
+* `BSON::Serializable`, `Hash`, `Array`, and `NamedTuple` still accept `Time` and Crystal `Regex` fields.
+* The default Decimal128 path no longer does `require "big"`.
+* Missing keys raise `KeyError`.
+* Regex `m` maps to `MULTILINE_ONLY` and `s` maps to `DOTALL` (Crystal 1.21). Option letters are written in alphabetical order: `i`, `m`, `s`, `u`, `x`.
 * **object_id:** Store the 12 bytes in a `StaticArray`. Generation uses `Atomic(UInt32)` instead of `Sync::Mutex`.
 * **serializable:** `to_bson` writes all fields in one builder pass.
+* **corpus:** Moved corpus JSON files to `spec/corpus/bson-corpus/tests/` and `spec/corpus/bson-binary-vector/tests/` to match the official MongoDB layout. The runner now checks native round-trip, `degenerate_bson`, and `degenerate_extjson`. The official Y10K datetime case runs.
 
 ### Performance
-* **decoder:** Nested documents and arrays now use `BSON.view` and do not clone the parent buffer.
-* **object_id:** Hex parse writes into the inline 12-byte array. No heap ObjectId buffer.
+* **builder / Cryomongo:** `BSON.build` and public `Builder` avoid repeated `[]=` rebuilds when you write a command or a reply.
+* **decoder:** Nested documents and arrays use `BSON.view` and do not clone the parent buffer.
+* **regex:** Decode no longer compiles PCRE. Queries that only store or send the pattern stay cheap.
+* **datetime:** DateTime is one `Int64`. No `Time` allocation on decode.
+* **object_id:** Hex parse writes into the inline 12-byte array. No heap ObjectId buffer. Generation uses `Atomic`, not a mutex.
 * **fetch:** A key hit no longer allocates a second `String` for the same key.
 * **extjson:** `Float64` canonical output writes through a stack buffer and maps `e` to `E`.
-* **decimal128:** Significand digits are read into `UInt128` without a second string-to-number pass.
+* **decimal128:** Significand digits are read into `UInt128` without a second string-to-number pass. LibGMP is not linked unless you require the BigDecimal helper.
+* **parse? / from_json?:** The driver can reject a bad message without using the value when nil is enough.
 
 ### Fixed
-* **core:** `BSON.new(Bytes)` now checks that the buffer has at least 5 bytes before it reads the size.
-* **core:** Field names and regex patterns cannot contain a null byte when encoding.
-* **hash:** `Hash.from_bson` number conversion now uses the `V` type variable.
-* **binary:** Packed-bit encode now rejects ignored bits that are not zero.
-* **types:** Removed the duplicate `Code` entry from `BSON::Value`.
+* Y10K and other out-of-range datetimes no longer fail decode.
+* Unusual or invalid regex patterns can round-trip.
+* `BSON.new(Bytes)` checks that the buffer has at least 5 bytes before it reads the size.
+* Field names and regex patterns cannot contain a null byte when encoding.
+* `Hash.from_bson` number conversion now uses the `V` type variable.
+* Packed-bit encode now rejects ignored bits that are not zero.
+* Removed the duplicate `Code` entry from `BSON::Value`.
 
 ## 0.7.0 - 2026-07-22
 
