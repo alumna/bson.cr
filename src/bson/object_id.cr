@@ -1,3 +1,9 @@
+{% if flag?(:unix) %}
+  lib LibPthreadAtFork
+    fun pthread_atfork(prepare : ->, parent : ->, child : ->) : LibC::Int
+  end
+{% end %}
+
 struct BSON
   # Unique object identifier.
   #
@@ -21,21 +27,26 @@ struct BSON
       end
     end
 
-    getter data : Bytes
+    # 12-byte ObjectId stored inline. No heap buffer, and no view into a parent document.
+    @bytes : StaticArray(UInt8, 12)
 
-    @@counter : Int32 = rand(0x1000000)
-    @@mutex = Sync::Mutex.new
+    @@counter = Atomic(UInt32).new(Random::Secure.rand(0x1000000).to_u32)
     # Fixed random bytes in order to have a better ordering.
     @@random_bytes : Bytes = Random::Secure.random_bytes(5)
+    @@fork_hook : Bool = install_fork_hook
 
     # Initialize from a hex string representation.
     def initialize(str : String)
       raise ArgumentError.new("ObjectId string must be exactly 24 hex characters") unless str.bytesize == 24
-      @data = str.hexbytes
+      ptr = str.to_unsafe
+      @bytes = StaticArray(UInt8, 12).new { |i| decode_hex_pair(ptr[i * 2], ptr[i * 2 + 1]) }
     end
 
     # Initialize from a Byte array.
-    def initialize(@data : Bytes); end
+    def initialize(data : Bytes)
+      raise ArgumentError.new("ObjectId bytes must be exactly 12 bytes") unless data.size == 12
+      @bytes = StaticArray(UInt8, 12).new { |i| data.unsafe_fetch(i) }
+    end
 
     # Initialize from a JSON object.
     def self.new(pull : JSON::PullParser)
@@ -49,28 +60,44 @@ struct BSON
 
     # Create a random ObjectId.
     def initialize
-      # [Performance] Avoid IO::Memory and heap allocations by writing directly to a slice
-      @data = Bytes.new(12)
+      @bytes = StaticArray(UInt8, 12).new(0)
 
       timestamp = Time.utc.to_unix.to_u32
-      IO::ByteFormat::BigEndian.encode(timestamp, @data[0, 4])
+      IO::ByteFormat::BigEndian.encode(timestamp, @bytes.to_slice[0, 4])
 
-      @@random_bytes.copy_to(@data[4, 5])
+      @@random_bytes.copy_to(@bytes.to_slice[4, 5])
 
-      counter = @@mutex.synchronize {
-        # [Correctness] Use 0x1000000 to wrap correctly at 3 bytes max (16777215)
-        @@counter = (@@counter + 1) % 0x1000000
-      }
+      # Increment first, then wrap to 3 bytes (0x000000..0xFFFFFF).
+      counter = (@@counter.add(1) &+ 1) & 0xFFFFFF_u32
+      @bytes[9] = (counter >> 16).to_u8!
+      @bytes[10] = (counter >> 8).to_u8!
+      @bytes[11] = counter.to_u8!
+    end
 
-      @data[9] = (counter >> 16).to_u8!
-      @data[10] = (counter >> 8).to_u8!
-      @data[11] = counter.to_u8!
+    # Copy of the 12 ObjectId bytes. Safe to keep after this value is gone.
+    def data : Bytes
+      @bytes.to_slice.clone
+    end
+
+    # Inline 12-byte view. Valid only while this ObjectId value is alive.
+    def to_slice : Bytes
+      @bytes.to_slice
+    end
+
+    # Seconds since the Unix epoch, as an unsigned 32-bit value.
+    def timestamp : UInt32
+      IO::ByteFormat::BigEndian.decode(UInt32, @bytes.to_slice[0, 4])
+    end
+
+    # Timestamp field as a UTC `Time`.
+    def generation_time : Time
+      Time.unix(timestamp.to_i64)
     end
 
     # Return a string hex representation of the ObjectId.
     def to_s(io : IO) : Nil
       buf = uninitialized UInt8[24]
-      @data.hexstring(buf.to_unsafe)
+      to_slice.hexstring(buf.to_unsafe)
       io.write_string(buf.to_slice)
     end
 
@@ -89,7 +116,13 @@ struct BSON
     end
 
     def <=>(other : ObjectId)
-      @data <=> other.data
+      to_slice <=> other.to_slice
+    end
+
+    # Rebuild the process-unique bytes and the counter. Called after fork.
+    def self.reset_process_unique! : Nil
+      @@random_bytes = Random::Secure.random_bytes(5)
+      @@counter.set(Random::Secure.rand(0x1000000).to_u32)
     end
 
     # Validate that a provided string is a well formated ObjectId.
@@ -101,6 +134,32 @@ struct BSON
                             (0x41_u8 <= b <= 0x46_u8)    # 'A'-'F'
       end
       true
+    end
+
+    private def decode_hex_pair(high : UInt8, low : UInt8) : UInt8
+      ((hex_nibble(high) << 4) | hex_nibble(low)).to_u8!
+    end
+
+    private def self.install_fork_hook : Bool
+      {% if flag?(:unix) %}
+        # Crystal 1.21 deprecates Process.fork, but a child that keeps running
+        # must not reuse the parent process-unique ObjectId bytes.
+        LibPthreadAtFork.pthread_atfork(-> { }, -> { }, -> { reset_process_unique! })
+      {% end %}
+      true
+    end
+
+    private def hex_nibble(byte : UInt8) : UInt8
+      case byte
+      when 0x30_u8..0x39_u8
+        byte - 0x30_u8
+      when 0x61_u8..0x66_u8
+        byte - 0x57_u8
+      when 0x41_u8..0x46_u8
+        byte - 0x37_u8
+      else
+        raise ArgumentError.new("ObjectId string must be exactly 24 hex characters")
+      end
     end
   end
 end

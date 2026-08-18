@@ -1,13 +1,15 @@
-### There are the following deliberate changes made to the corpus tests in Crystal:
+# BSON corpus tests
 
-- In "double" tests, lowercased the exponent "E". (ex: 1.2345678921232E+18 -> 1.2345678921232e+18)
+These files come from the official MongoDB specifications repository.
 
-- Added the "ignore" flag
+Layout:
 
-Y10K datetime raises an "Invalid time: seconds out of range" error.
+- `bson-corpus/tests/` matches `source/bson-corpus/tests/`
+- `bson-binary-vector/tests/` matches `source/bson-binary-vector/tests/`
 
-- Added the "ignore_json_roundtrip" flag to ignore round trip tests.
+The JSON files are the same as the official files. The test runner in
+`spec/spec_helper.cr` now includes the Y10K datetime case because the
+library implements and provides `BSON::DateTime`.
 
-Makes up for issues in the Crystal Parser (-0.0 parsed as 0.0, minimum Int64 value raises).
-
-- Slightly modified relaxed_extjson values for a datetime testto enforce 3 fraction digits.
+The runner still skips `Bad DBRef` parse errors. DBRef is a driver convention,
+not a BSON type. This library keeps those documents as normal documents.

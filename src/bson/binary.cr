@@ -99,9 +99,59 @@ struct BSON
       @data = data
     end
 
-    def initialize(uuid : UUID)
-      @subtype = SubType::UUID
-      @data = uuid.bytes.to_slice.clone
+    # UUID byte order used when encoding or decoding a native `UUID`.
+    enum UuidRepresentation
+      Standard
+      CSharpLegacy
+      JavaLegacy
+      PythonLegacy
+    end
+
+    def initialize(uuid : UUID, representation : UuidRepresentation = UuidRepresentation::Standard)
+      bytes = uuid.bytes.to_slice.clone
+      case representation
+      when .standard?
+        @subtype = SubType::UUID
+      when .python_legacy?
+        @subtype = SubType::UUID_Old
+      when .c_sharp_legacy?
+        @subtype = SubType::UUID_Old
+        swap_csharp_uuid_bytes!(bytes)
+      when .java_legacy?
+        @subtype = SubType::UUID_Old
+        swap_java_uuid_bytes!(bytes)
+      else
+        raise Exception.new("UUID representation is not specified")
+      end
+      @data = bytes
+    end
+
+    def as_uuid : UUID
+      as_uuid(UuidRepresentation::Standard)
+    end
+
+    def as_uuid(representation : UuidRepresentation) : UUID
+      raise Exception.new("UUID binary must be 16 bytes") unless @data.size == 16
+      case representation
+      when .standard?
+        raise Exception.new("Standard UUID requires subtype 4") unless @subtype.uuid?
+        UUID.new(@data)
+      when .python_legacy?
+        raise Exception.new("Python legacy UUID requires subtype 3") unless @subtype.uuid_old?
+        UUID.new(@data)
+      when .c_sharp_legacy?
+        raise Exception.new("C# legacy UUID requires subtype 3") unless @subtype.uuid_old?
+        bytes = @data.clone
+        swap_csharp_uuid_bytes!(bytes)
+        UUID.new(bytes)
+      when .java_legacy?
+        raise Exception.new("Java legacy UUID requires subtype 3") unless @subtype.uuid_old?
+        bytes = @data.clone
+        swap_java_uuid_bytes!(bytes)
+        UUID.new(bytes)
+      else
+        raise Exception.new("UUID representation is not specified")
+      end
     end
 
     def to_vector : Vector
@@ -156,6 +206,7 @@ struct BSON
 
     def self.from_packed_bit_vector(vector : Indexable(UInt8), padding : Int = 0) : self
       raise Exception.new("Invalid PACKED_BIT vector: padding must be between 0 and 7") unless 0 <= padding <= 7
+      check_packed_bit_ignored_bits!(vector, padding)
       payload = Bytes.new(2 + vector.size)
       payload[0] = Vector::DataType::PackedBit.value
       payload[1] = padding.to_u8!
@@ -167,6 +218,7 @@ struct BSON
 
     def self.from_packed_bit_vector(vector : Indexable(Int32), padding : Int = 0) : self
       raise Exception.new("Invalid PACKED_BIT vector: padding must be between 0 and 7") unless 0 <= padding <= 7
+      check_packed_bit_ignored_bits!(vector, padding)
       payload = Bytes.new(2 + vector.size)
       payload[0] = Vector::DataType::PackedBit.value
       payload[1] = padding.to_u8!
@@ -175,6 +227,30 @@ struct BSON
         payload[2 + i] = val.to_u8!
       end
       new(SubType::Vector, payload)
+    end
+
+    private def self.check_packed_bit_ignored_bits!(vector : Indexable, padding : Int) : Nil
+      return if padding == 0
+      raise Exception.new("Invalid PACKED_BIT vector: data cannot be empty if padding > 0") if vector.empty?
+      last = vector[vector.size - 1].to_u8!
+      mask = (1_u8 << padding) - 1_u8
+      if (last & mask) != 0
+        raise Exception.new("Invalid PACKED_BIT vector: ignored bits must be zero")
+      end
+    end
+
+    private def swap_csharp_uuid_bytes!(bytes : Bytes) : Nil
+      bytes[0], bytes[3] = bytes[3], bytes[0]
+      bytes[1], bytes[2] = bytes[2], bytes[1]
+      bytes[4], bytes[5] = bytes[5], bytes[4]
+      bytes[6], bytes[7] = bytes[7], bytes[6]
+    end
+
+    private def swap_java_uuid_bytes!(bytes : Bytes) : Nil
+      4.times do |i|
+        bytes[i], bytes[7 - i] = bytes[7 - i], bytes[i]
+        bytes[8 + i], bytes[15 - i] = bytes[15 - i], bytes[8 + i]
+      end
     end
   end
 end

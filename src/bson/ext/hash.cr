@@ -33,6 +33,16 @@ class Hash(K, V)
       {% for typ in types.uniq %}
         {% if typ <= Hash || typ <= Array %}
 
+        {% elsif typ <= Time %}
+        when {BSON::DateTime, _}
+          hash[k] = v.as(BSON::DateTime).to_time
+        when {Time, _}
+          hash[k] = v.as(Time)
+        {% elsif typ <= ::Regex %}
+        when {BSON::Regex, _}
+          hash[k] = v.as(BSON::Regex).to_regex
+        when {::Regex, _}
+          hash[k] = v.as(::Regex)
         {% elsif (typ <= BSON::Serializable || typ.class.has_method? :from_bson) %}
         when { BSON, _ }
           hash[k] = {{ typ }}.from_bson(v)
@@ -43,7 +53,7 @@ class Hash(K, V)
         {% end %}
       {% end %}
 
-      {% if T <= Number %}
+      {% if V <= Number %}
         {% ntyp = types.find(&.<=(Number)) %}
         {% if ntyp %}
         when {Number, _}

@@ -4,7 +4,7 @@ require "./spec_helper"
 describe "BSON Binary Vector (Subtype 9)" do
   {% for file in %w(float32 int8 packed_bit) %}
     describe {{file}} do
-      corpus = JSON.parse(File.read("./spec/corpus/vector/{{file.id}}.json"))
+      corpus = JSON.parse(File.read("./spec/corpus/bson-binary-vector/tests/{{file.id}}.json"))
       test_key = corpus["test_key"].as_s
 
       corpus["tests"].as_a.each do |test|

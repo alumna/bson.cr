@@ -31,6 +31,16 @@ class Array(T)
       {% for typ in types %}
         {% if typ <= Hash || typ <= Array %}
 
+        {% elsif typ <= Time %}
+        when {BSON::DateTime, _}
+          arr << v.as(BSON::DateTime).to_time
+        when {Time, _}
+          arr << v.as(Time)
+        {% elsif typ <= ::Regex %}
+        when {BSON::Regex, _}
+          arr << v.as(BSON::Regex).to_regex
+        when {::Regex, _}
+          arr << v.as(::Regex)
         {% elsif typ <= BSON::Serializable || typ.class.has_method? :from_bson %}
         when {BSON, _}
           arr << {{ typ }}.from_bson(v)

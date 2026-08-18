@@ -6,10 +6,12 @@ struct Float64
     builder.object {
       builder.string("$numberDouble")
       builder.string do |io|
-        # [Performance] Write directly to IO while converting 'e' to 'E' without string allocations
-        str = self.to_s
-        str.each_char do |c|
-          io << (c == 'e' ? 'E' : c)
+        # Write the number into a stack buffer, then copy it while mapping 'e' to 'E'.
+        buf = uninitialized UInt8[64]
+        mem = IO::Memory.new(buf.to_slice, writable: true)
+        to_s(mem)
+        mem.to_slice[0, mem.pos].each do |byte|
+          io.write_byte(byte == 0x65_u8 ? 0x45_u8 : byte)
         end
       end
     }

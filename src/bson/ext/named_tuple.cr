@@ -7,6 +7,10 @@ struct NamedTuple
       {% for key, typ in T %}
         {% if typ <= BSON::Serializable || typ.class.has_method? :from_bson %}
           {{ key }}: {{ typ }}.from_bson(bson[{{ key.stringify }}]),
+        {% elsif typ <= Time %}
+          {{ key }}: bson[{{ key.stringify }}].as(BSON::DateTime).to_time,
+        {% elsif typ <= ::Regex %}
+          {{ key }}: bson[{{ key.stringify }}].as(BSON::Regex).to_regex,
         {% else %}
           {{ key }}: bson[{{ key.stringify }}].as({{ typ }}),
         {% end %}

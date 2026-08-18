@@ -1,5 +1,3 @@
-require "big"
-
 struct BSON
   # 128-bit decimal floating point.
   #
@@ -89,13 +87,9 @@ struct BSON
       exponent, sig_str = Decimal128.round_exact(exponent, sig_str)
       exponent, sig_str = Decimal128.clamp(exponent, sig_str)
 
-      # Validates characters automatically
-      sig_val = sig_str.to_u128?(10, whitespace: false) || raise InvalidString.new
+      # Read digits into UInt128 without a second string-to-number pass.
+      sig_val = parse_significand(sig_str)
       @low, @high = Decimal128.parts_to_bits(sig_val, exponent.to_i, is_neg)
-    end
-
-    def initialize(big_decimal : BigDecimal)
-      initialize(big_decimal.to_s)
     end
 
     def initialize(bytes : Bytes)
@@ -125,10 +119,6 @@ struct BSON
       end
     end
 
-    def to_big_d : BigDecimal
-      BigDecimal.new(self.to_s)
-    end
-
     def to_json(builder : JSON::Builder)
       to_canonical_extjson(builder)
     end
@@ -155,10 +145,10 @@ struct BSON
       slice
     end
 
-    class InvalidString < Exception
+    class InvalidString < Error
     end
 
-    class InvalidRange < Exception
+    class InvalidRange < Error
     end
 
     protected def self.parts_to_bits(significand : UInt128, exponent : Int32, is_negative : Bool)
@@ -240,6 +230,17 @@ struct BSON
         count += 1
       end
       count < s.bytesize ? count : 0
+    end
+
+    private def parse_significand(s : String) : UInt128
+      raise InvalidString.new if s.empty?
+      raise InvalidRange.new if s.bytesize > 39
+      value = 0_u128
+      s.each_byte do |byte|
+        raise InvalidString.new unless 0x30_u8 <= byte <= 0x39_u8
+        value = (value * 10) + (byte - 0x30_u8)
+      end
+      value
     end
 
     private def write_value(io : IO) : Nil

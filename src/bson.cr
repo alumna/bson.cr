@@ -2,6 +2,7 @@
 
 require "json"
 require "base64"
+require "./bson/error"
 require "./bson/helpers/*"
 require "./bson/*"
 require "./bson/ext/*"
@@ -51,17 +52,68 @@ struct BSON
   # ```
   def initialize(data : Bytes? = nil, validate : Bool = false)
     if d = data
-      # [Performance] Read size directly from pointer avoiding a slice allocation
-      size = d.to_unsafe.as(Pointer(Int32)).value
-      Decoder.check_size! d.size, 5, size
+      check_header!(d)
       @data = d.clone
     else
-      @data = Bytes.new(5)
-      @data.to_unsafe.as(Pointer(Int32)).value = 5
+      @data = empty_document_bytes
     end
 
     # [Correctness] Act upon the `validate` argument
     validate! if validate
+  end
+
+  # Create a BSON document over *data* without copying the bytes.
+  #
+  # The slice must stay valid for the life of the document. Nested values
+  # decoded from a parent document use this path.
+  def self.view(data : Bytes, validate : Bool = false) : self
+    document = new(no_copy: data)
+    document.check_header!(data)
+    document.validate! if validate
+    document
+  end
+
+  private def initialize(*, no_copy data : Bytes)
+    @data = data
+  end
+
+  protected def check_header!(data : Bytes) : Int32
+    raise Error.new("Invalid BSON (wrong field size: #{data.size})") if data.size < 5
+    size = IO::ByteFormat::LittleEndian.decode(Int32, data[0, 4])
+    Decoder.check_size! data.size, 5, size
+    size
+  end
+
+  # Read *data* and walk every field. Raises `BSON::Error` when the document is invalid.
+  def self.parse(data : Bytes) : self
+    new(data, validate: true)
+  end
+
+  # Read *data* and walk every field. Returns `nil` when the document is invalid.
+  def self.parse?(data : Bytes) : self?
+    parse(data)
+  rescue Error
+    nil
+  end
+
+  # Read a document from *io*. Returns `nil` when the bytes are invalid or short.
+  def self.from_io?(io : IO) : self?
+    new(io)
+  rescue Error | IO::Error
+    nil
+  end
+
+  # Build a document in one pass. Prefer this in Cryomongo instead of many `[]=` calls.
+  def self.build(&) : self
+    builder = Builder.new
+    yield builder
+    view(builder.to_bson)
+  end
+
+  private def empty_document_bytes : Bytes
+    bytes = Bytes.new(5)
+    IO::ByteFormat::LittleEndian.encode(5, bytes)
+    bytes
   end
 
   # Allocate a BSON instance from an IO
@@ -132,7 +184,7 @@ struct BSON
 
   # Allocate a BSON instance from an instance of BSON::Serializable.
   def initialize(serializable : BSON::Serializable)
-    initialize(serializable.to_bson.data)
+    @data = serializable.to_bson.data
   end
 
   protected def initialize(pull : JSON::PullParser)
@@ -147,7 +199,7 @@ struct BSON
       end
     else
       pull.read_object do |key|
-        raise "Bad document key" if key.includes?('\u0000')
+        raise Error.new("Bad document key") if key.includes?('\u0000')
         kind = pull.kind
         Decoder.decode_json_key(kind, key, builder, pull)
       end
@@ -169,26 +221,20 @@ struct BSON
   # puts bson.to_json # => {"key":"value"}
   # ```
   def []=(key : String | ::Symbol, value)
-    # [Performance] Pre-size IO to avoid reallocations
-    io = IO::Memory.new(@data.size)
-    io.write @data[4...-1]
-    builder = Builder.new(io)
-    if value.responds_to? :to_bson
-      builder[key.to_s] = value.to_bson
-    else
-      builder[key.to_s] = value
+    append_with_builder do |builder|
+      if value.responds_to? :to_bson
+        builder[key.to_s] = value.to_bson
+      else
+        builder[key.to_s] = value
+      end
     end
-    @data = builder.to_bson
   end
 
   # Append a key/value pair and declare it as a BSON array.
   def append_array(key : String | ::Symbol, value : BSON)
-    # [Performance] Pre-size IO to avoid reallocations
-    io = IO::Memory.new(@data.size)
-    io.write @data[4...-1]
-    builder = Builder.new(io)
-    builder.append_array(key, value)
-    @data = builder.to_bson
+    append_with_builder do |builder|
+      builder.append_array(key.to_s, value)
+    end
   end
 
   # Append one or more key/value pairs.
@@ -201,14 +247,28 @@ struct BSON
   # puts bson.to_json # => {"key":"value","key2":"value2"}
   # ```
   def append(**args)
+    append_with_builder do |builder|
+      args.each { |key, value|
+        # [Performance] Avoid string interpolation overhead
+        builder[key.to_s] = value
+      }
+    end
+  end
+
+  # Append several fields with one rebuild of the document buffer.
+  def append(&)
+    append_with_builder do |builder|
+      yield builder
+    end
+  end
+
+  private def append_with_builder(&)
     io = IO::Memory.new(@data.size)
     io.write @data[4...-1]
     builder = Builder.new(io)
-    args.each { |key, value|
-      # [Performance] Avoid string interpolation overhead
-      builder[key.to_s] = value
-    }
+    yield builder
     @data = builder.to_bson
+    self
   end
 
   # Append the contents of another BSON instance.
@@ -230,9 +290,7 @@ struct BSON
 
   # Clears the BSON instance.
   def clear
-    @data = Bytes.new(5)
-    # [Correctness] Write the empty document size indicator
-    @data.to_unsafe.as(Pointer(Int32)).value = 5
+    @data = empty_document_bytes
   end
 
   # Return the element with the given key, or `nil` if the key is not present.
@@ -253,10 +311,10 @@ struct BSON
   # ```
   # bson = BSON.new({ key: "value" })
   # puts bson["key"] # =>"value"
-  # puts bson["nope"] # => Unhandled exception: Missing bson key: nope (Exception)
+  # puts bson["nope"] # => Unhandled exception: Missing bson key: nope (KeyError)
   def [](key : String | ::Symbol) : Value
     value, found = fetch(key)
-    raise "Missing bson key: #{key}" unless found
+    raise KeyError.new("Missing bson key: #{key}") unless found
     value
   end
 
@@ -276,7 +334,7 @@ struct BSON
     if (value = self[key]) && value.is_a? BSON
       return value.dig(*subkeys)
     end
-    raise "BSON value not diggable for key: #{key.inspect}"
+    raise KeyError.new("BSON value not diggable for key: #{key.inspect}")
   end
 
   # Traverses the depth of a structure and returns the value.
@@ -313,9 +371,8 @@ struct BSON
       # [Performance] Compare raw string bytes via LibC to avoid allocating Strings for skipped fields
       key_size = key.bytesize
       if (pointer + pos + key_size).value == 0 && LibC.memcmp(pointer + pos, key.to_unsafe, key_size) == 0
-        field = String.new(pointer + pos, key_size)
         pos += key_size + 1
-        _, data = Decoder.decode_field!(pointer, pos, {code, field}, max_pos: size)
+        _, data = Decoder.decode_field!(pointer, pos, {code, key}, max_pos: size)
         return {data[1], true}
       else
         # [Performance] Fast skip for non-matching fields
@@ -360,10 +417,10 @@ struct BSON
 
     loop do
       if (pointer + pos).value == 0x00
-        raise "Invalid BSON size." if pos != size - 1
+        raise Error.new("Invalid BSON size.") if pos != size - 1
         break
       end
-      raise "Invalid BSON size." if pos >= size
+      raise Error.new("Invalid BSON size.") if pos >= size
 
       new_pos, data = Decoder.decode_field!(pointer, pos, max_pos: size)
       pos = new_pos
@@ -446,6 +503,46 @@ struct BSON
     }
   end
 
+  # Re-encode this document from decoded values.
+  #
+  # Degenerate array keys become 0, 1, 2, ... and regex options become
+  # alphabetical. Used to check native BSON round-trips.
+  def canonicalize : BSON
+    canonicalize(as_array: false)
+  end
+
+  protected def canonicalize(as_array : Bool) : BSON
+    builder = Builder.new
+    index = 0
+    self.each { |key, value, code, subtype|
+      out_key = if as_array
+                  str_index = index < 128 ? Builder::STATIC_INDICES.unsafe_fetch(index) : index.to_s
+                  index += 1
+                  str_index
+                else
+                  key
+                end
+
+      case code
+      when Element::Array
+        builder.append_array(out_key, value.as(BSON).canonicalize(as_array: true))
+      when Element::Document
+        builder[out_key] = value.as(BSON).canonicalize(as_array: false)
+      when Element::Binary
+        if value.is_a?(UUID)
+          builder[out_key] = value
+        elsif value.is_a?(Bytes)
+          builder[out_key] = Binary.new(subtype || Binary::SubType::Generic, value)
+        else
+          raise "Invalid binary value"
+        end
+      else
+        builder[out_key] = value
+      end
+    }
+    BSON.view(builder.to_bson)
+  end
+
   # Validate that the BSON is well-formed.
   #
   # ```
@@ -456,93 +553,5 @@ struct BSON
   def validate!
     # [Performance] Avoid unnecessary tuple allocations during validation
     self.each { }
-  end
-
-  # Allocate a BSON instance from a relaxed extended json representation.
-  #
-  # NOTE: see https://github.com/mongodb/specifications/blob/master/source/extended-json.rst
-  #
-  # ```
-  # bson = BSON.from_json(%({
-  #   "_id": {
-  #     "$oid": "57e193d7a9cc81b4027498b5"
-  #   },
-  #   "String": "string",
-  #   "Int": 42,
-  #   "Double": -1.0
-  # }))
-  # puts bson.to_json # => {"_id":{"$oid":"57e193d7a9cc81b4027498b5"},"String":"string","Int":42,"Double":-1.0}
-  # ```
-  def self.from_json(json : String)
-    self.new(JSON::PullParser.new json)
-  end
-
-  # ameba:disable Metrics/CyclomaticComplexity
-  def to_json(builder : JSON::Builder, *, array = false)
-    # [Performance] Inline the blocks to avoid Proc allocations and indirections
-    if array
-      builder.array { build_json_fields(builder, array: true, canonical: false) }
-    else
-      builder.object { build_json_fields(builder, array: false, canonical: false) }
-    end
-  end
-
-  protected def to_canonical_extjson(builder : JSON::Builder, *, array = false)
-    # [Performance] Inline the blocks to avoid Proc allocations and indirections
-    if array
-      builder.array { build_json_fields(builder, array: true, canonical: true) }
-    else
-      builder.object { build_json_fields(builder, array: false, canonical: true) }
-    end
-  end
-
-  # [Simplicity] Extracted common logic to avoid code duplication
-  private def build_json_fields(builder, array, canonical)
-    self.each { |(key, value, code, subtype)|
-      builder.string(key) unless array
-
-      if code == Element::Array && value.is_a? BSON
-        canonical ? value.to_canonical_extjson(builder, array: true) : value.to_json(builder, array: true)
-      elsif !canonical && code == Element::Document && value.is_a? BSON
-        value.to_json(builder, array: false)
-      elsif code == Element::Binary && value.is_a? Bytes
-        value.to_canonical_extjson(builder, subtype)
-      elsif !canonical && value.is_a? Int32
-        value.to_json(builder)
-      elsif !canonical && value.is_a? Int64
-        value.to_json(builder)
-      elsif !canonical && value.is_a? Float64
-        if value.nan? || value.infinite?
-          value.to_canonical_extjson(builder)
-        else
-          value.to_json(builder)
-        end
-      elsif !canonical && value.is_a? Time && value.year >= 1970 && value.year <= 9999
-        value.to_relaxed_extjson(builder)
-      elsif value.responds_to? :to_canonical_extjson
-        value.to_canonical_extjson(builder)
-      else
-        builder.scalar(nil)
-      end
-    }
-  end
-
-  # Serialize this BSON instance into a canonical extended json representation.
-  #
-  # NOTE: see https://github.com/mongodb/specifications/blob/master/source/extended-json.rst
-  # ```
-  # bson = BSON.from_json(%({
-  #   "Int": 42,
-  #   "Double": -1.0
-  # }))
-  # puts bson.to_canonical_extjson # => {"Int":{"$numberLong":"42"},"Double":{"$numberDouble":"-1.0"}}
-  # ```
-  def to_canonical_extjson
-    io = IO::Memory.new
-    builder = JSON::Builder.new io
-    builder.start_document
-    self.to_canonical_extjson(builder)
-    builder.end_document
-    io.to_s
   end
 end

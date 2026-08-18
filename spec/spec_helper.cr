@@ -7,14 +7,14 @@ module Runner::Corpus
   extend self
 
   def run(name : String, *focus)
-    corpus = File.open("./spec/corpus/#{name}.json") do |file|
+    corpus = File.open("./spec/corpus/bson-corpus/tests/#{name}.json") do |file|
       JSON.parse(file)
     end
 
     # Valid tests
     corpus["valid"]?.try &.as_a.each { |test|
       description = test["description"].as_s
-      next if test["ignore"]? || description == "Y10K"
+      next if test["ignore"]?
       it description, focus: focus.includes?(description) do
         # Parse canonical bson
         bson_bytes = test["canonical_bson"].as_s.hexbytes
@@ -23,6 +23,13 @@ module Runner::Corpus
         bson.validate!
         # Ensure that the underlying bytes are equal
         bson.data.should eq bson_bytes
+        # Native decode then encode must produce canonical BSON.
+        unless test["lossy"]? == true
+          bson.canonicalize.data.should eq bson_bytes
+        end
+        if degenerate_bson = test["degenerate_bson"]?
+          BSON.new(degenerate_bson.as_s.hexbytes).canonicalize.data.should eq bson_bytes
+        end
         # Serialize to canonical extended json and compare with the expected canonical json.
         bson.to_canonical_extjson.should eq JSON.parse(test["canonical_extjson"].as_s).to_json
         # Serialize to json and compare with the expected relaxed extended json.
@@ -37,6 +44,11 @@ module Runner::Corpus
           # Strict BSON byte roundtrip (only if not lossy)
           unless test["lossy"]? == true
             BSON.from_json(test["canonical_extjson"].as_s).data.should eq bson_bytes
+          end
+        end
+        if degenerate_extjson = test["degenerate_extjson"]?
+          unless test["lossy"]? == true
+            BSON.from_json(degenerate_extjson.as_s).data.should eq bson_bytes
           end
         end
       end

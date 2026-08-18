@@ -44,6 +44,26 @@ module BSON::Serializable
                   {% if typ <= BSON::Serializable %}
                   when BSON
                     {{ typ }}.from_bson(bson_value)
+                  {% elsif typ <= Time %}
+                  when BSON::DateTime
+                    bson_value.to_time
+                  when Time
+                    bson_value.as(Time)
+                  {% elsif typ <= ::Regex %}
+                  when BSON::Regex
+                    bson_value.to_regex
+                  when ::Regex
+                    bson_value.as(::Regex)
+                  {% elsif typ <= BSON::DateTime %}
+                  when BSON::DateTime
+                    bson_value
+                  when Time
+                    BSON::DateTime.new(bson_value)
+                  {% elsif typ <= BSON::Regex %}
+                  when BSON::Regex
+                    bson_value
+                  when ::Regex
+                    BSON::Regex.new(bson_value)
                   {% elsif typ.class.has_method?(:from_bson) %}
                   when BSON, BSON::Value
                     {{ typ }}.from_bson(bson_value)
@@ -101,30 +121,32 @@ module BSON::Serializable
       {% global_options = @type.annotations(BSON::Options) %}
       # [Simplicity] Access the last annotation directly
       {% camelize = global_options.last && global_options.last[:camelize] %}
-      {% for ivar in @type.instance_vars %}
-        {% ann = ivar.annotation(BSON::Field) %}
-        {% bson_key = ann && ann[:key] ? ann[:key].id : (camelize ? ivar.name.camelcase(lower: camelize == "lower") : ivar.name) %}
-        {% unless ann && ann[:ignore] %}
-          {% getter_names = [ivar.name + "?", ivar.name, ivar.name + "!"] %}
-          {% getter_name = getter_names.find { |name| @type.has_method? name } %}
-          {% if getter_name %}
-            %val = self.{{ getter_name }}
-            {% unless ann && ann[:emit_null] %}
-              unless %val.nil?
-            {% end %}
-              # [Correctness] Dynamically check if the specific value responds to to_bson rather than relying on the first union type
-              # [Performance/Simplicity] No redundant .try checking required since non-nil cases fall through cleanly
-              if %val.responds_to?(:to_bson)
-                bson["{{ bson_key }}"] = %val.to_bson
-              else
-                bson["{{ bson_key }}"] = %val
-              end
-            {% unless ann && ann[:emit_null] %}
-              end
+      bson.append do |builder|
+        {% for ivar in @type.instance_vars %}
+          {% ann = ivar.annotation(BSON::Field) %}
+          {% bson_key = ann && ann[:key] ? ann[:key].id : (camelize ? ivar.name.camelcase(lower: camelize == "lower") : ivar.name) %}
+          {% unless ann && ann[:ignore] %}
+            {% getter_names = [ivar.name + "?", ivar.name, ivar.name + "!"] %}
+            {% getter_name = getter_names.find { |name| @type.has_method? name } %}
+            {% if getter_name %}
+              %val = self.{{ getter_name }}
+              {% unless ann && ann[:emit_null] %}
+                unless %val.nil?
+              {% end %}
+                # [Correctness] Dynamically check if the specific value responds to to_bson rather than relying on the first union type
+                # [Performance/Simplicity] No redundant .try checking required since non-nil cases fall through cleanly
+                if %val.responds_to?(:to_bson)
+                  builder["{{ bson_key }}"] = %val.to_bson
+                else
+                  builder["{{ bson_key }}"] = %val
+                end
+              {% unless ann && ann[:emit_null] %}
+                end
+              {% end %}
             {% end %}
           {% end %}
         {% end %}
-      {% end %}
+      end
       {% end %}
       bson
     end

@@ -1,4 +1,8 @@
 class Regex
+  def ==(other : BSON::Regex) : Bool
+    other == self
+  end
+
   # Serialize to a canonical extended json representation.
   #
   # NOTE: see https://github.com/mongodb/specifications/blob/master/source/extended-json.rst
@@ -10,10 +14,7 @@ class Regex
         builder.string(self.source)
         builder.string("options")
         builder.string do |io|
-          io << 'i' if self.options.includes? :ignore_case
-          io << 'm' if self.options.includes? :multiline
-          io << 'x' if self.options.includes? :extended
-          io << 'u' if self.options.includes? :utf_8
+          BSON::Regex.write_letters(io, self.options)
         end
       }
     }
