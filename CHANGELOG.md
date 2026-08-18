@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Added
+* **object_id:** Added `timestamp` (`UInt32`) and `generation_time` (`Time`) accessors. The timestamp is an unsigned 32-bit value, as required by the spec.
+* **binary:** Added `UuidRepresentation` and `as_uuid` helpers for standard, C#, Java, and Python UUID byte orders.
+* **core:** Added `BSON.view` for a document that reads an existing buffer without a copy.
+* **core:** Added `BSON#canonicalize` to encode decoded values again. Degenerate array keys and regex options become canonical.
+* **core:** Added `BSON#append` with a block so many fields can be written with one buffer rebuild.
+* **spec:** Added prose tests for null bytes in keys and regex patterns, ObjectId timestamps, UUID representations, and packed-bit ignored bits.
+
+### Changed
+* **corpus:** Moved corpus JSON files to `spec/corpus/bson-corpus/tests/` and `spec/corpus/bson-binary-vector/tests/` to match the official MongoDB repository layout.
+* **regex:** `m` now maps to `MULTILINE_ONLY` and `s` maps to `DOTALL`. Option letters are written in alphabetical order: `i`, `m`, `s`, `u`, `x`.
+* **object_id:** Store the 12 bytes in a `StaticArray`. Generation uses `Atomic(UInt32)` instead of `Sync::Mutex`.
+* **serializable:** `to_bson` writes all fields in one builder pass.
+
+### Performance
+* **decoder:** Nested documents and arrays now use `BSON.view` and do not clone the parent buffer.
+* **object_id:** Hex parse writes into the inline 12-byte array. No heap ObjectId buffer.
+* **fetch:** A key hit no longer allocates a second `String` for the same key.
+* **extjson:** `Float64` canonical output writes through a stack buffer and maps `e` to `E`.
+* **decimal128:** Significand digits are read into `UInt128` without a second string-to-number pass.
+
+### Fixed
+* **core:** `BSON.new(Bytes)` now checks that the buffer has at least 5 bytes before it reads the size.
+* **core:** Field names and regex patterns cannot contain a null byte when encoding.
+* **hash:** `Hash.from_bson` number conversion now uses the `V` type variable.
+* **binary:** Packed-bit encode now rejects ignored bits that are not zero.
+* **types:** Removed the duplicate `Code` entry from `BSON::Value`.
+
 ## 0.7.0 - 2026-07-22
 
 ### Added

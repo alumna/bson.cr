@@ -6,12 +6,13 @@ struct BSON
                 Bytes |
                 ObjectId |
                 Bool |
+                DateTime |
                 Time |
                 Int32 |
                 Int64 |
                 UUID |
                 Code |
-                Regex |
+                BSON::Regex |
                 Decimal128 |
                 DBPointer |
                 BSON::Symbol |
@@ -19,7 +20,6 @@ struct BSON
                 MinKey |
                 MaxKey |
                 Undefined |
-                Code |
                 Nil
 
   # Used for recursive hash conversions.
@@ -29,12 +29,13 @@ struct BSON
                          Bytes |
                          ObjectId |
                          Bool |
+                         DateTime |
                          Time |
                          Int32 |
                          Int64 |
                          UUID |
                          Code |
-                         Regex |
+                         BSON::Regex |
                          Decimal128 |
                          DBPointer |
                          BSON::Symbol |
@@ -42,7 +43,6 @@ struct BSON
                          MinKey |
                          MaxKey |
                          Undefined |
-                         Code |
                          Nil |
                          Hash(String, RecursiveValue) |
                          Array(RecursiveValue)

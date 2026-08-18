@@ -1,5 +1,6 @@
 struct BSON
-  private class Builder
+  # Incremental BSON writer. Cryomongo can use this to build a document in one pass.
+  class Builder
     getter io : IO::Memory
 
     # Pre-allocated static string representation for small array/field integer indices (0..127) to avoid heap allocations
@@ -8,6 +9,7 @@ struct BSON
     def initialize(@io : IO::Memory = IO::Memory.new); end
 
     private def field(code : Element, key : String)
+      raise ArgumentError.new("BSON keys cannot contain a null byte") if key.includes?('\0')
       # [Performance] Use write_byte instead of write_bytes for 1-byte primitives
       @io.write_byte code.value
       @io << key
@@ -95,7 +97,7 @@ struct BSON
 
     def []=(key : String, value : ObjectId)
       field(:object_id, key)
-      @io.write value.data
+      @io.write value.to_slice
     end
 
     def []=(key : String, value : Bool)
@@ -114,16 +116,21 @@ struct BSON
       field(:null, key)
     end
 
-    def []=(key : String, value : Regex)
+    def []=(key : String, value : DateTime)
+      field(:date_time, key)
+      @io.write_bytes value.milliseconds, IO::ByteFormat::LittleEndian
+    end
+
+    def []=(key : String, value : BSON::Regex)
       field(:regexp, key)
-      @io << value.source
+      @io << value.pattern
       @io.write_byte 0x00_u8
-      # [Performance] Write option chars directly to IO instead of a new String allocation
-      @io.write_byte 'i'.ord.to_u8! if value.options.includes? :ignore_case
-      @io.write_byte 'm'.ord.to_u8! if value.options.includes? :multiline
-      @io.write_byte 'x'.ord.to_u8! if value.options.includes? :extended
-      @io.write_byte 'u'.ord.to_u8! if value.options.includes? :utf_8
+      @io << value.options
       @io.write_byte 0x00_u8
+    end
+
+    def []=(key : String, value : ::Regex)
+      self.[key] = BSON::Regex.new(value)
     end
 
     def []=(key : String, value : Int8)
@@ -159,11 +166,6 @@ struct BSON
     def []=(key : String, value : Int64)
       field(:int64, key)
       @io.write_bytes value, IO::ByteFormat::LittleEndian
-    end
-
-    def []=(key : String, value : BigDecimal)
-      field(:decimal128, key)
-      Decimal128.new(value).to_io(@io)
     end
 
     def []=(key : String, value : Decimal128)
@@ -206,7 +208,7 @@ struct BSON
       @io.write_bytes value.data.bytesize + 1, IO::ByteFormat::LittleEndian
       @io << value.data
       @io.write_byte 0x00_u8
-      @io.write value.oid.data
+      @io.write value.oid.to_slice
     end
 
     def []=(key : String, value : Undefined)

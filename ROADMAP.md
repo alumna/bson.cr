@@ -4,7 +4,7 @@
 
 This project is an active fork (`alumna/bson.cr`) originally based on `elbywan/bson.cr`. It provides a pure Crystal implementation of the BSON specification.
 - **Goal:** modernization for Crystal 1.20+, and acting as a foundation for the `cryomongo` updated driver targeting MongoDB 8.0.
-- **Target OS:** Linux exclusively (Debian 13 / Ubuntu 24.04). The other OSed later, when the update is concluded.
+- **Target OS:** Linux exclusively (Debian 13 / Ubuntu 24.04). The other OS later, when the update is concluded.
 - **Target Compiler:** Crystal 1.20+. Strict avoidance of deprecated standard library modules.
 
 ---
@@ -30,7 +30,22 @@ This project is an active fork (`alumna/bson.cr`) originally based on `elbywan/b
 - [x] **Zero-Allocation:** Replaced intermediate string allocations during Extended JSON generation with direct IO streaming (`builder.string { |io| ... }`).
 - [x] **Encrypted BSON:** Ensured `to_json` and `to_canonical_extjson` outputs perfectly align with the MongoDB specs for subtype `0x06` via optimized base64 slice streaming.
 
+### Phase 5: Complete review: Correctness, performance, views, and test corpus folder layout [Completed]
+- [x] Native BSON round-trip in the corpus runner (`canonicalize`, `degenerate_bson`, `degenerate_extjson`).
+- [x] Crystal 1.21 regex flags (`m` / `s`), alphabetical option letters, and null-byte checks on encode.
+- [x] Inline `ObjectId` bytes, unsigned timestamp accessors, and `Atomic` counter.
+- [x] Nested document views, one-pass `to_bson` for `Serializable`, and UUID representation helpers.
+- [x] Corpus files now follow the official MongoDB folder layout.
+
+### Phase 6: Finish remaining spec types and Cryomongo helpers [Completed]
+- [x] `BSON::Regex` stores pattern and options as text. No PCRE compile on decode.
+- [x] `BSON::DateTime` stores `int64` milliseconds. Y10K and other values outside Crystal `Time` are kept.
+- [x] `BigDecimal` support is optional: `require "bson/optional/big_decimal"`. The default path does not load LibGMP.
+- [x] ObjectId process-unique bytes are rebuilt after `fork` on Unix (`pthread_atfork`).
+- [x] `BSON.parse` / `parse?`, `from_json?`, `from_io?`, `BSON.build`, and public `BSON::Builder` for Cryomongo.
+
 ---
 
 ## Future Stage: Integration & Upstream
-With the BSON foundation now fully optimized and compliant with MongoDB 8.0 specs, the focus shifts to utilizing this fork within the `alumna/cryomongo` driver. Once `cryomongo` is stabilized and tested in production, a comprehensive PR will be compiled to propose merging these enhancements back into the original `elbywan/bson.cr` upstream repository.
+
+The BSON shard is complete for MongoDB 8.0. Next work is the `alumna/cryomongo` driver. When that driver is stable in production, we will open a PR to merge this fork back into `elbywan/bson.cr`.
