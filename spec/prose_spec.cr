@@ -87,6 +87,100 @@ describe "BSON prose tests" do
       bson["a"].should eq 1
       bson["b"].should eq "x"
     end
+
+    it "writes an empty nested document of size 5" do
+      bson = BSON.build do |b|
+        b.document("empty") { }
+      end
+      nested = bson["empty"].as(BSON)
+      nested.empty?.should be_true
+      nested.size.should eq 5
+
+      copied = BSON.build do |b|
+        b["empty"] = BSON.new
+      end
+      bson.data.should eq copied.data
+    end
+
+    it "writes a nested Hash with the document helper" do
+      bson = BSON.build do |b|
+        b.document("user") do
+          b["name"] = "Ada"
+          b["age"] = 30_i64
+        end
+      end
+      user = bson["user"].as(BSON)
+      user["name"].should eq "Ada"
+      user["age"].should eq 30_i64
+
+      via_hash = BSON.build do |b|
+        b["user"] = {"name" => "Ada", "age" => 30_i64}
+      end
+      bson.data.should eq via_hash.data
+    end
+
+    it "writes a nested Array with the array helper" do
+      bson = BSON.build do |b|
+        b.array("tags") do
+          b["0"] = "math"
+          b["1"] = "code"
+        end
+      end
+      tags = bson["tags"].as(BSON)
+      tags["0"].should eq "math"
+      tags["1"].should eq "code"
+
+      child = BSON.build do |c|
+        c["0"] = "math"
+        c["1"] = "code"
+      end
+      copied = BSON.build do |b|
+        b.append_array("tags", child)
+      end
+      via_array = BSON.build do |b|
+        b["tags"] = ["math", "code"]
+      end
+      bson.data.should eq copied.data
+      via_array.data.should eq copied.data
+    end
+
+    it "writes a document inside a document" do
+      bson = BSON.build do |b|
+        b.document("outer") do
+          b.document("inner") do
+            b["n"] = 1_i32
+          end
+        end
+      end
+      bson.dig("outer", "inner", "n").should eq 1
+    end
+
+    it "matches bytes of a child BSON assigned with []=" do
+      child = BSON.build do |c|
+        c["name"] = "Ada"
+        c["age"] = 30_i64
+      end
+      copied = BSON.build do |b|
+        b["user"] = child
+      end
+      in_place = BSON.build do |b|
+        b.document("user") do
+          b["name"] = "Ada"
+          b["age"] = 30_i64
+        end
+      end
+      in_place.data.should eq copied.data
+    end
+
+    it "rejects a null byte in a nested key" do
+      expect_raises(ArgumentError) do
+        BSON.build do |b|
+          b.document("user") do
+            b["a\0b"] = 1
+          end
+        end
+      end
+    end
   end
 
   describe "ObjectId process unique bytes" do
