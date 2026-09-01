@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 - 2026-09-01
 
 ### Added
 * **builder:** `Builder#document(key, &)` and `Builder#array(key, &)` write a nested document or array into the same IO (size placeholder, then patch). `[]=(Hash)` and `[]=(Array)` use them, so nested Hash/Array encode no longer allocates a child BSON.
