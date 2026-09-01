@@ -57,6 +57,18 @@ bson = BSON.build do |b|
   b["name"] = "Ada"
 end
 
+# Nested document / array in the same buffer (no child BSON)
+bson = BSON.build do |b|
+  b.document("user") do
+    b["name"] = "Ada"
+    b["age"] = 30_i64
+  end
+  b.array("tags") do
+    b["0"] = "math"
+    b["1"] = "code"
+  end
+end
+
 # NamedTuple or Hash
 bson = BSON.new({hello: "world"})
 bson = BSON.new({"hello" => "world"})

@@ -49,8 +49,11 @@ struct BSON
     end
 
     def []=(key : String, value : Hash)
-      field(:document, key)
-      @io.write BSON.new(value).data
+      document(key) do
+        value.each { |k, v|
+          self[k.to_s] = v
+        }
+      end
     end
 
     def append_array(key : String, value : BSON)
@@ -58,20 +61,32 @@ struct BSON
       @io.write value.data
     end
 
+    # Nested document in this IO. Yields self. Empty nested size is 5.
+    def document(key : String, &) : Nil
+      size_pos = start_nested(:document, key)
+      yield self
+      close_nested(size_pos)
+    end
+
+    # Nested array in this IO. Yields self. Empty nested size is 5.
+    def array(key : String, &) : Nil
+      size_pos = start_nested(:array, key)
+      yield self
+      close_nested(size_pos)
+    end
+
     def []=(key : String, value : Array)
-      array_builder = Builder.new
-      value.each_with_index { |item, index|
-        # [Performance] Use pre-allocated static index strings for common indices (0..127) to avoid heap allocations
-        str_index = index < 128 ? STATIC_INDICES.unsafe_fetch(index) : index.to_s
-        if item.responds_to? :to_bson
-          array_builder[str_index] = item.to_bson
-        else
-          array_builder[str_index] = item
-        end
-      }
-      field(:array, key)
-      # [Performance] Directly use bytes to avoid unnecessary instantiation and copy
-      @io.write array_builder.to_bson
+      array(key) do
+        value.each_with_index { |item, index|
+          # [Performance] Use pre-allocated static index strings for common indices (0..127) to avoid heap allocations
+          str_index = index < 128 ? STATIC_INDICES.unsafe_fetch(index) : index.to_s
+          if item.responds_to? :to_bson
+            self[str_index] = item.to_bson
+          else
+            self[str_index] = item
+          end
+        }
+      end
     end
 
     def []=(key : String, value : Binary)
@@ -230,6 +245,23 @@ struct BSON
       IO::ByteFormat::LittleEndian.encode(size, data[0, 4])
       data[4, fields.size].copy_from(fields)
       data
+    end
+
+    # Type + key + NUL, then a 4-byte little-endian Int32 placeholder (0).
+    private def start_nested(code : Element, key : String) : Int32
+      field(code, key)
+      size_pos = @io.pos
+      @io.write_bytes 0_i32, IO::ByteFormat::LittleEndian
+      size_pos
+    end
+
+    # Trailing 0x00, then patch size (placeholder through NUL, inclusive) and seek to the end.
+    private def close_nested(size_pos : Int32) : Nil
+      @io.write_byte 0x00_u8
+      end_pos = @io.pos
+      @io.seek(size_pos)
+      @io.write_bytes (end_pos - size_pos).to_i32, IO::ByteFormat::LittleEndian
+      @io.seek(end_pos)
     end
   end
 end
