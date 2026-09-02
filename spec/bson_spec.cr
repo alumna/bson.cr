@@ -71,6 +71,12 @@ describe BSON do
       bson = BSON.from_json(REFERENCE_JSON)
       bson.data.should eq REFERENCE_BYTES
     end
+    it "#initialize(array)" do
+      bson = BSON.new([1, 2, 3])
+      bson["0"].should eq 1
+      bson["1"].should eq 2
+      bson["2"].should eq 3
+    end
   end
 
   describe "append" do
@@ -227,6 +233,35 @@ describe BSON do
           bson[k]?.should eq v
         end
       }
+    end
+
+    it "to_h empty document" do
+      BSON.new.to_h.empty?.should be_true
+    end
+
+    it "to_h nested empty document and array" do
+      bson = BSON.build do |b|
+        b.document("e") { }
+        b.array("a") { }
+      end
+      h = bson.to_h
+      h["e"].as(Hash).empty?.should be_true
+      h["a"].as(Array).empty?.should be_true
+    end
+
+    it "to_h keeps Int32 and nested Hash/Array" do
+      bson = BSON.build do |b|
+        b["n"] = 1
+        b.document("d") { b["x"] = "y" }
+        b.array("a") do
+          b["0"] = 2
+        end
+      end
+      h = bson.to_h
+      h["n"].should eq 1
+      h["n"].should be_a(Int32)
+      h["d"].should eq({"x" => "y"})
+      h["a"].should eq([2])
     end
   end
 
