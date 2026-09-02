@@ -263,6 +263,51 @@ describe BSON do
       h["d"].should eq({"x" => "y"})
       h["a"].should eq([2])
     end
+
+    it "to_h reuses interned left/right keys" do
+      first = BSON.build do |b|
+        b.document("left") { b["leftValue"] = "abcdefgh" }
+        b.document("right") { b["rightValue"] = "ijklmnop" }
+      end.to_h
+      second = BSON.build do |b|
+        b.document("left") { b["leftValue"] = "abcdefgh" }
+        b.document("right") { b["rightValue"] = "ijklmnop" }
+      end.to_h
+      shared_left = shared_right = shared_lv = shared_rv = false
+      first.each_key { |a|
+        second.each_key { |b|
+          shared_left = true if a == "left" && a.same?(b)
+          shared_right = true if a == "right" && a.same?(b)
+        }
+      }
+      first["left"].as(Hash).each_key { |a|
+        second["left"].as(Hash).each_key { |b|
+          shared_lv = true if a == "leftValue" && a.same?(b)
+        }
+      }
+      first["right"].as(Hash).each_key { |a|
+        second["right"].as(Hash).each_key { |b|
+          shared_rv = true if a == "rightValue" && a.same?(b)
+        }
+      }
+      shared_left.should be_true
+      shared_right.should be_true
+      shared_lv.should be_true
+      shared_rv.should be_true
+    end
+
+    it "to_h does not intern lookalike keys" do
+      first = BSON.build { |b| b["lefty"] = 1 }.to_h
+      second = BSON.build { |b| b["lefty"] = 1 }.to_h
+      shared = false
+      first.each_key { |a|
+        second.each_key { |b|
+          shared = true if a.same?(b)
+        }
+      }
+      first.has_key?("lefty").should be_true
+      shared.should be_false
+    end
   end
 
   describe "validate" do

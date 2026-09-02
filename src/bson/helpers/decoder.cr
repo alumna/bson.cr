@@ -199,6 +199,23 @@ struct BSON
       {pos, {key, value, code, subtype}}
     end
 
+    # Shared interned names for the four deep-tree keys. Literals are interned by
+    # Crystal: immutable, shared, fiber-safe. No intern table (no leak).
+    @[AlwaysInline]
+    private def intern_key!(ptr : Pointer(UInt8), key_len : Int32) : String
+      case key_len
+      when 4
+        return "left" if LibC.memcmp(ptr, "left".to_unsafe, 4) == 0
+      when 5
+        return "right" if LibC.memcmp(ptr, "right".to_unsafe, 5) == 0
+      when 9
+        return "leftValue" if LibC.memcmp(ptr, "leftValue".to_unsafe, 9) == 0
+      when 10
+        return "rightValue" if LibC.memcmp(ptr, "rightValue".to_unsafe, 10) == 0
+      end
+      String.new(ptr, key_len)
+    end
+
     # Hash/Array from a document buffer. Nested documents and arrays become
     # Hash/Array directly (no BSON.view, no second walk).
     # Empty BSON is 5 bytes → capacity 0 (Crystal Hash initial_capacity 1..7 allocates 8).
@@ -217,11 +234,13 @@ struct BSON
 
         code = Element.new((pointer + pos).value)
         pos += 1
-        # Copy the field name from the C string. String values still check UTF-8.
+        # Keys are C-strings. Copy or intern; do not validate UTF-8 here.
+        # String values still check UTF-8 in store_recursive! / decode_string!.
         key_len = LibC.strlen(pointer + pos)
         raise Error.new("Invalid BSON (string overflow)") if pos + key_len >= size
-        key = String.new(pointer + pos, key_len)
-        pos += key_len + 1
+        len = key_len.to_i32
+        key = intern_key!(pointer + pos, len)
+        pos += len + 1
         pos = store_recursive!(hash, key, pointer, pos, code, size)
       end
 
