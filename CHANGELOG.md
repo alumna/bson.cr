@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.2 - Unreleased
+## 0.9.2 - 2026-09-02
 
 ### Performance
 * **decoder / `to_h`:** Intern `"left"`, `"right"`, `"leftValue"`, `"rightValue"` by size and `memcmp`. Other keys stay `String.new`. No intern table. Keys are C-strings (no UTF-8 check). String values still check UTF-8.

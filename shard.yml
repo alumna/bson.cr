@@ -2,7 +2,7 @@ name: bson
 version: 0.9.2
 
 description: |
-  A pure Crystal Implementation of the BSON Specification.
+  A pure Crystal Implementation of the BSON Specification
 
 crystal: ">= 1.20.0"
 
