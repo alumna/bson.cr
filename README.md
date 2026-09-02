@@ -16,7 +16,7 @@ The library is a pure Crystal BSON codec. It follows the official MongoDB BSON a
 * **MongoDB 8.0 BSON:** All current types, including Binary Vector (`0x09`: Float32, Int8, PackedBit) and Encrypted (`0x06`) ExtJSON.
 * **Full range DateTime and Regex:** `BSON::DateTime` stores `int64` milliseconds (including Y10K). `BSON::Regex` stores pattern and options as text and does not compile PCRE on decode.
 * **Cryomongo helpers:** `BSON.build`, public `BSON::Builder`, `BSON.parse` / `parse?`, `from_json?`, `from_io?`, and `BSON.view` for zero-copy nested documents.
-* **`to_h`:** Nested documents and arrays decode into `Hash` / `Array` in one pass (no child `BSON.view`). `each` still yields nested views.
+* **`to_h`:** Nested documents and arrays decode into `Hash` / `Array` in one pass (no child `BSON.view`). Repeated keys `"left"`, `"right"`, `"leftValue"`, `"rightValue"` are interned (no intern table). `each` still yields nested views.
 * **Native Decimal128:** 16-byte `UInt128` math. No LibGMP in the default require. `BigDecimal` is optional.
 * **Crystal 1.20 / 1.21:** ObjectId uses `Atomic`. After `fork` on Unix the process-unique bytes are rebuilt. Regex `m` and `s` flags follow Crystal 1.21.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2 - Unreleased
+
+### Performance
+* **decoder / `to_h`:** Intern `"left"`, `"right"`, `"leftValue"`, `"rightValue"` by size and `memcmp`. Other keys stay `String.new`. No intern table. Keys are C-strings (no UTF-8 check). String values still check UTF-8.
+* Deep decode 119 → **134** MB/s (repeat 130). BSONBench 1103 → 1069 (encode / flat / full in the noise). Public `to_h` types are unchanged.
+
 ## 0.9.1 - 2026-09-02
 
 ### Changed
