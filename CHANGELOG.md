@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+* **core:** `BSON.new(Array)` uses `Builder::STATIC_INDICES` for keys `0..127` (same as nested array encode).
+
+### Performance
+* **decoder / `to_h`:** Nested documents and arrays fill `Hash` / `Array` in one pass (no child `BSON.view`, no `Enumerable#map`). Empty collections use capacity 0. Do not pre-size documents from `(size-5)//4` (nested child bytes inflate the hint). Public `to_h` types are unchanged.
+* Improvements: flat decode 905 → **1179** MB/s; deep decode 100 → **119** MB/s; full decode 772 → **828** MB/s; BSONBench 1018 → **1103**.
+
 ## 0.9.0 - 2026-09-01
 
 ### Added

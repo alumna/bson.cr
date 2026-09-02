@@ -176,8 +176,8 @@ struct BSON
   def initialize(ary : Array)
     builder = Builder.new
     ary.each_with_index { |value, index|
-      # [Performance] Avoid string interpolation overhead
-      builder[index.to_s] = value
+      str_index = index < 128 ? Builder::STATIC_INDICES.unsafe_fetch(index) : index.to_s
+      builder[str_index] = value
     }
     @data = builder.to_bson
   end
@@ -472,35 +472,11 @@ struct BSON
   # pp bson.to_h # => {"a" => 1, "b" => "2", "c" => { "d" => 1}}
   # ```
   def to_h
-    hash = Hash(String, RecursiveValue).new
-    self.each { |(key, value, code)|
-      value = value.as(RecursiveValue)
-      if value.is_a? BSON
-        if code.array?
-          hash[key] = value.to_h_array
-        else
-          hash[key] = value.to_h
-        end
-      else
-        hash[key] = value
-      end
-    }
-    hash
+    Decoder.decode_to_h!(@data.to_unsafe, @data.size)
   end
 
   protected def to_h_array
-    self.map { |_, value, code|
-      value = value.as(RecursiveValue)
-      if value.is_a? BSON
-        if code.array?
-          value.to_h_array
-        else
-          value.to_h
-        end
-      else
-        value
-      end
-    }
+    Decoder.decode_to_a!(@data.to_unsafe, @data.size)
   end
 
   # Re-encode this document from decoded values.
