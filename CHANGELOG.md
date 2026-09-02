@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.1 - 2026-09-02
 
 ### Changed
 * **core:** `BSON.new(Array)` uses `Builder::STATIC_INDICES` for keys `0..127` (same as nested array encode).
