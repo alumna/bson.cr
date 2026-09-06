@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # DBPointer — Deprecated.
   struct DBPointer
     getter data, oid

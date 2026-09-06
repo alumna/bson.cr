@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # Symbol. Deprecated.
   struct Symbol
     getter data

@@ -1,6 +1,6 @@
 require "big"
 
-struct BSON
+class BSON
   struct Decimal128
     def initialize(big_decimal : BigDecimal)
       initialize(big_decimal.to_s)

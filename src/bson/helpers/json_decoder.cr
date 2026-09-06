@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   private module Decoder
     protected def decode_json_key(kind : JSON::PullParser::Kind, key : String, builder : Builder, pull : JSON::PullParser)
       case kind

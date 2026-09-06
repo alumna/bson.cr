@@ -4,7 +4,7 @@
   end
 {% end %}
 
-struct BSON
+class BSON
   # Unique object identifier.
   #
   # See: dochub.mongodb.org/core/objectids

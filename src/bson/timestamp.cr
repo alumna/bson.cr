@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # Timestamp - Special internal type used by MongoDB replication and sharding. First 4 bytes are an increment, second 4 are a timestamp.
   struct Timestamp
     include Comparable(Timestamp)

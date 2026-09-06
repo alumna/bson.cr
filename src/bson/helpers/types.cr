@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # List of field values
   alias Value = Float64 |
                 String |

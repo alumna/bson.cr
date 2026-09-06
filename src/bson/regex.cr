@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # BSON regular expression: a pattern C string and an options C string.
   #
   # This type does not compile the pattern. Unusual or invalid patterns stay

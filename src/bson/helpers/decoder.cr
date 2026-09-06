@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   private module Decoder
     extend self
 

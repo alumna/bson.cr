@@ -1,6 +1,6 @@
 require "uuid"
 
-struct BSON
+class BSON
   # Binary data.
   struct Binary
     # BSON binary values have a subtype. This is used to indicate what kind of data is in the byte array.
