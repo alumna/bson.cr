@@ -77,6 +77,30 @@ describe BSON do
       bson["1"].should eq 2
       bson["2"].should eq 3
     end
+
+    it "is a class and view does not copy bytes" do
+      {% unless BSON < Reference %}
+        {% raise "BSON document must be a class" %}
+      {% end %}
+      {% if BSON::ObjectId < Reference || BSON::Binary < Reference || BSON::Decimal128 < Reference %}
+        {% raise "ObjectId / Binary / Decimal128 must stay structs" %}
+      {% end %}
+
+      BSON.new.is_a?(Reference).should be_true
+      BSON::ObjectId.new.is_a?(Struct).should be_true
+
+      owned = BSON.new({hello: "world"})
+      view = BSON.view(owned.data)
+      view.data.to_unsafe.should eq owned.data.to_unsafe
+      view.data.size.should eq owned.data.size
+      view["hello"].should eq "world"
+
+      copied = BSON.new(owned.data)
+      copied.data.to_unsafe.should_not eq owned.data.to_unsafe
+      copied["hello"].should eq "world"
+
+      BSON.new(owned).same?(owned).should be_true
+    end
   end
 
   describe "append" do

@@ -2,7 +2,7 @@ module BSON::Serializable
   macro included
     {% verbatim do %}
 
-    # Allocate an instance and copies data from a BSON struct.
+    # Allocate an instance and copies data from a BSON document.
     #
     # ```
     # class User

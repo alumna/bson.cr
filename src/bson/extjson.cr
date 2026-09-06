@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # Allocate a BSON instance from a relaxed extended json representation.
   #
   # NOTE: see https://github.com/mongodb/specifications/blob/master/source/extended-json.rst

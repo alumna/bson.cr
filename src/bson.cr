@@ -32,7 +32,13 @@ require "./bson/ext/*"
 # puts data.to_json
 # # => {"hello":"world","time":{"$date":"2020-05-18T07:32:13.621000000Z"},"name":{"first_name":"John","last_name":"Doe"},"fruits":["Orange","Banana"]}
 # ```
-struct BSON
+#
+# Heap class so Crystal 1.21 GC scans `@data` (Wave 58). A struct whose
+# `@data` is an interior Slice is not a Darwin GC root after
+# `OwnedReceive#view` returns (`33990243466` macos-15 standalone SIGBUS).
+# `BSON.view` still does not copy bytes. ObjectId / Binary / Decimal128
+# stay structs.
+class BSON
   # Underlying bytes
   getter data
 
@@ -64,8 +70,9 @@ struct BSON
 
   # Create a BSON document over *data* without copying the bytes.
   #
-  # The slice must stay valid for the life of the document. Nested values
-  # decoded from a parent document use this path.
+  # One heap object. `@data` is a Slice the GC scans. Do not copy bytes
+  # a second time. The slice must stay valid for the life of the document.
+  # Nested values decoded from a parent document use this path.
   def self.view(data : Bytes, validate : Bool = false) : self
     document = new(no_copy: data)
     document.check_header!(data)
@@ -437,23 +444,25 @@ struct BSON
   private struct Iterator
     include ::Iterator(Item)
 
-    @data : Bytes
+    @bson : BSON
     @pos = 4
 
     def initialize(bson : BSON)
-      # [Performance] BSON fields are immutable during iteration, removing heap allocation clone
-      @data = bson.data
+      # Keep the class so GC scans `@data` while this iterator lives
+      # (Wave 58). Do not clone bytes.
+      @bson = bson
     end
 
     def next
-      pointer = @data.to_unsafe
+      data = @bson.data
+      pointer = data.to_unsafe
 
       return Iterator::Stop::INSTANCE if (pointer + @pos).value == 0
 
-      new_pos, data = Decoder.decode_field!(pointer, @pos, max_pos: @data.size)
+      new_pos, item = Decoder.decode_field!(pointer, @pos, max_pos: data.size)
       @pos = new_pos
 
-      data
+      item
     end
   end
 

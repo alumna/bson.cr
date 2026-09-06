@@ -49,4 +49,4 @@ This project is an active fork (`alumna/bson.cr`) originally based on `elbywan/b
 
 ## Future Stage: Integration & Upstream
 
-The BSON shard is complete for MongoDB 8.0. Next work is the `alumna/cryomongo` driver. When that driver is stable in production, we will open a PR to merge this fork back into `elbywan/bson.cr`.
+The BSON shard is complete for MongoDB 8.0. Encrypted binary subtype `0x06` is already implemented. CSFLE in cryomongo should not need a bson-only wave unless a blocker appears. Next product work is the `alumna/cryomongo` driver. When that driver is stable in production, we will open a PR to merge this fork back into `elbywan/bson.cr`.

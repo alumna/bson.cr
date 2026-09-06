@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+* **core:**
+  * BSON document is a class so Crystal 1.21 GC scans `@data`.
+  * `BSON.view` still does not copy bytes. ObjectId / Binary / Decimal128 stay structs.
+  * Extra alloc per view is the GC trade (Darwin SIGBUS after pin.bytes).
+* **docs:**
+  * ROADMAP notes that MongoDB 8.0 BSON is complete, including encrypted subtype `0x06`.
+
 ## 0.9.2 - 2026-09-02
 
 ### Performance

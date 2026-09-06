@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # JavaScript code.
   struct Code
     getter code, scope

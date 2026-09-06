@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # Incremental BSON writer. Cryomongo can use this to build a document in one pass.
   class Builder
     getter io : IO::Memory

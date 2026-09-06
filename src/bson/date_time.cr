@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # BSON UTC datetime: milliseconds since the Unix epoch, as a signed 64-bit integer.
   #
   # Crystal `Time` cannot store every BSON datetime (for example year 10000).

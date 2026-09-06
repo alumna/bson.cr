@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # Min key - Special type which compares lower than all other possible BSON element values.
   struct MinKey
     def to_json(builder : JSON::Builder)

@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # This annotation can be used to set global serialization options.
   #
   # ```

@@ -9,7 +9,7 @@
 
 This is a temporary fork to update the spec, raise performance, and prepare the `Cryomongo` driver for MongoDB 8.0. A merge back to the original repository is planned when that driver work is done.
 
-The library is a pure Crystal BSON codec. It follows the official MongoDB BSON and Extended JSON specs. It uses less heap memory on the common paths (views, inline ObjectId, one-pass builders).
+The library is a pure Crystal BSON codec. It follows the official MongoDB BSON and Extended JSON specs. The document type is a class so Crystal 1.21 GC scans `@data`. `BSON.view` still does not copy bytes. Helper types (ObjectId, Binary, Decimal128) stay structs.
 
 ### What this version includes
 
@@ -256,7 +256,7 @@ decimal.to_big_d
 ## Notes for Cryomongo
 
 * Build replies and commands with `BSON.build` or `BSON::Builder`. Do not use `[]=` in a loop.
-* Nested documents from `each` are views (`BSON.view`). Keep the parent document alive while you use them.
+* Nested documents from `each` are views (`BSON.view`). The view is a class; keep it or the parent while you use nested values.
 * `to_h` copies nested documents and arrays into `Hash` / `Array`. Those values do not depend on the parent buffer.
 * Treat `BSON::Error` as a bad message. Use `parse?` / `from_json?` when a nil result is enough.
 * Dates are `BSON::DateTime`. Call `#to_time` at the model edge if the app wants `Time`.

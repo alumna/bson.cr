@@ -1,4 +1,4 @@
-struct BSON
+class BSON
   # 128-bit decimal floating point.
   #
   # See: https://github.com/mongodb/specifications/blob/master/source/bson-decimal128/decimal128.rst
