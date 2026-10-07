@@ -1,12 +1,71 @@
 class BSON
   # Incremental BSON writer. Cryomongo can use this to build a document in one pass.
   class Builder
+    # Owns the bytes. `finish_document` turns this buffer into the BSON
+    # document (header + fields + NUL) without a second allocation when
+    # the spare capacity can hold the 5 extra bytes.
+    class Buf < IO::Memory
+      @doc : Bytes? = nil
+
+      def finish_document : Bytes
+        if doc = @doc
+          return doc
+        end
+
+        fields_size = @bytesize
+        total = fields_size + 5
+        if total > @capacity
+          # Next IO growth would jump to the next power of two. Allocate the
+          # exact document instead of doubling.
+          ptr = GC.malloc_atomic(total).as(Pointer(UInt8))
+          write_header(ptr, total)
+          @buffer.copy_to(ptr + 4, fields_size) if fields_size > 0
+          (ptr + total - 1).value = 0_u8
+          doc = Slice.new(ptr, total)
+          @doc = doc
+          return doc
+        end
+
+        # Pad in place, then slide fields forward over the header gap.
+        @pos = @bytesize
+        5.times { write_byte 0_u8 }
+        if fields_size > 0
+          (@buffer + 4).move_from(@buffer, fields_size)
+        end
+        write_header(@buffer, total)
+        doc = Slice.new(@buffer, total)
+        @doc = doc
+        doc
+      end
+
+      def write(slice : Bytes) : Nil
+        raise Error.new("BSON::Builder already finished") if @doc
+        super
+      end
+
+      def write_byte(byte : UInt8) : Nil
+        raise Error.new("BSON::Builder already finished") if @doc
+        super
+      end
+
+      private def write_header(ptr : Pointer(UInt8), total : Int32) : Nil
+        IO::ByteFormat::LittleEndian.encode(total, Slice.new(ptr, 4))
+      end
+    end
+
     getter io : IO::Memory
 
     # Pre-allocated static string representation for small array/field integer indices (0..127) to avoid heap allocations
     STATIC_INDICES = Array(String).new(128) { |i| i.to_s }
 
-    def initialize(@io : IO::Memory = IO::Memory.new); end
+    def initialize(io : IO::Memory = Buf.new)
+      @io = io
+    end
+
+    # *capacity* is the full document size, including the 5-byte header.
+    def initialize(capacity : Int)
+      initialize(Buf.new(capacity))
+    end
 
     private def field(code : Element, key : String)
       raise ArgumentError.new("BSON keys cannot contain a null byte") if key.includes?('\0')
@@ -238,13 +297,116 @@ class BSON
       field(:max_key, key)
     end
 
+    # Full document size (header + fields + NUL), or -1 when a value's
+    # encoded size is not known without building it. Callers use this to
+    # allocate the buffer once.
+    def self.document_size(h : Hash) : Int32
+      total = 5
+      h.each do |key, value|
+        payload = payload_size(value)
+        return -1 if payload < 0
+        total += 2 + key.to_s.bytesize + payload
+      end
+      total
+    end
+
+    def self.document_size(tuple : NamedTuple) : Int32
+      total = 5
+      tuple.each do |key, value|
+        payload = payload_size(value)
+        return -1 if payload < 0
+        total += 2 + key.to_s.bytesize + payload
+      end
+      total
+    end
+
+    def self.document_size(ary : Array) : Int32
+      total = 5
+      ary.each_with_index do |item, index|
+        # Serializable elements encode through to_bson. Their size is the
+        # child document, which we do not build twice.
+        return -1 if item.responds_to?(:to_bson)
+        payload = payload_size(item)
+        return -1 if payload < 0
+        key = index < 128 ? STATIC_INDICES.unsafe_fetch(index) : index.to_s
+        total += 2 + key.bytesize + payload
+      end
+      total
+    end
+
+    # Bytes of the value payload only (no type byte, no key). -1 if unknown.
+    def self.payload_size(value) : Int32
+      case value
+      when Nil, MinKey, MaxKey, Undefined
+        0
+      when Bool
+        1
+      when Int8, UInt8, Int16, UInt16, Int32
+        4
+      when UInt32, Int64, Float32, Float64, Time, DateTime, Timestamp
+        8
+      when String
+        5 + value.bytesize
+      when BSON
+        value.size
+      when ObjectId
+        12
+      when Decimal128
+        16
+      when UUID
+        21
+      when Bytes
+        5 + value.size
+      when Binary
+        extra = value.subtype.binary_old? ? 4 : 0
+        5 + extra + value.data.size
+      when BSON::Regex
+        value.pattern.bytesize + value.options.bytesize + 2
+      when ::Regex
+        value.source.bytesize + regex_letter_count(value.options) + 2
+      when Code
+        if scope = value.scope
+          8 + value.code.bytesize + 1 + scope.size
+        else
+          5 + value.code.bytesize
+        end
+      when BSON::Symbol
+        5 + value.data.bytesize
+      when DBPointer
+        17 + value.data.bytesize
+      when Hash
+        document_size(value)
+      when Array
+        document_size(value)
+      when NamedTuple
+        document_size(value)
+      else
+        -1
+      end
+    end
+
+    private def self.regex_letter_count(options : ::Regex::Options) : Int32
+      n = 0
+      n += 1 if options.ignore_case?
+      n += 1 if options.multiline? || options.multiline_only?
+      n += 1 if options.multiline? || options.dotall?
+      n += 1 if options.utf_8?
+      n += 1 if options.extended?
+      n
+    end
+
     def to_bson
-      fields = @io.to_slice
-      size = 5 + fields.size
-      data = Bytes.new(size)
-      IO::ByteFormat::LittleEndian.encode(size, data[0, 4])
-      data[4, fields.size].copy_from(fields)
-      data
+      if buf = @io.as?(Buf)
+        buf.finish_document
+      else
+        # External IO::Memory (append, pre-sized callers). Same wrap as before.
+        fields = @io.to_slice
+        size = 5 + fields.size
+        data = Bytes.new(size)
+        IO::ByteFormat::LittleEndian.encode(size, data[0, 4])
+        data[4, fields.size].copy_from(fields) if fields.size > 0
+        data
+      end
     end
 
     # Type + key + NUL, then a 4-byte little-endian Int32 placeholder (0).
