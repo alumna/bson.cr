@@ -4,7 +4,7 @@
 
 ### Performance
 * **builder:** `to_bson` finishes in the writer buffer when the header fits, instead of allocating a second copy. Hash, NamedTuple, and Array constructors pre-size that buffer from the value sizes.
-* **decoder:** Wide documents size the `Hash` from a field count. `each` reuses the interned deep-tree keys. ASCII strings skip the full UTF-8 checker.
+* **decoder:** Wide documents size the `Hash` from a field count. `each` reuses the interned deep-tree keys and the reply fields `ok`, `n`, `operationTime`, and `$clusterTime`. ASCII strings skip the full UTF-8 checker.
 * **core:** `BSON.new(Bytes)` copies into pointer-free memory (no zero-fill, not scanned). Empty documents share one read-only 5-byte buffer. `append` rebuilds in one buffer. The document stays a class.
 
 ## 0.9.3 - 2026-09-06

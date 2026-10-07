@@ -226,22 +226,26 @@ class BSON
     # Crystal: immutable, shared, fiber-safe. No intern table (no leak).
     @[AlwaysInline]
     private def read_key!(ptr : Pointer(UInt8), key_len : Int32, skip_checks : Bool) : String
-      case key_len
-      when 4
-        return "left" if LibC.memcmp(ptr, "left".to_unsafe, 4) == 0
-      when 5
-        return "right" if LibC.memcmp(ptr, "right".to_unsafe, 5) == 0
-      when 9
-        return "leftValue" if LibC.memcmp(ptr, "leftValue".to_unsafe, 9) == 0
-      when 10
-        return "rightValue" if LibC.memcmp(ptr, "rightValue".to_unsafe, 10) == 0
+      if key = interned_key(ptr, key_len)
+        return key
       end
       decode_string!(ptr, key_len, skip_checks: skip_checks)
     end
 
     @[AlwaysInline]
     private def intern_key!(ptr : Pointer(UInt8), key_len : Int32) : String
+      interned_key(ptr, key_len) || String.new(ptr, key_len)
+    end
+
+    # Literals are interned by Crystal. Deep-tree keys plus the reply fields
+    # every acknowledged command parses (`ok`, `n`, `operationTime`, `$clusterTime`).
+    @[AlwaysInline]
+    private def interned_key(ptr : Pointer(UInt8), key_len : Int32) : String?
       case key_len
+      when 1
+        return "n" if ptr.value === 0x6e_u8
+      when 2
+        return "ok" if LibC.memcmp(ptr, "ok".to_unsafe, 2) == 0
       when 4
         return "left" if LibC.memcmp(ptr, "left".to_unsafe, 4) == 0
       when 5
@@ -250,8 +254,12 @@ class BSON
         return "leftValue" if LibC.memcmp(ptr, "leftValue".to_unsafe, 9) == 0
       when 10
         return "rightValue" if LibC.memcmp(ptr, "rightValue".to_unsafe, 10) == 0
+      when 12
+        return "$clusterTime" if LibC.memcmp(ptr, "$clusterTime".to_unsafe, 12) == 0
+      when 13
+        return "operationTime" if LibC.memcmp(ptr, "operationTime".to_unsafe, 13) == 0
       end
-      String.new(ptr, key_len)
+      nil
     end
 
     # Hash/Array from a document buffer. Nested documents and arrays become
