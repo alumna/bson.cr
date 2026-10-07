@@ -42,6 +42,14 @@ class BSON
   # Underlying bytes
   getter data
 
+  # Shared empty document `{size=5, 0}`. Read-only so writers replace `@data`
+  # instead of mutating every empty document at once.
+  private EMPTY_RAW = begin
+    raw = StaticArray(UInt8, 5).new(0_u8)
+    raw[0] = 5_u8
+    raw
+  end
+
   include Enumerable(Item)
   include Iterable(Item)
   include Comparable(BSON)
@@ -59,7 +67,9 @@ class BSON
   def initialize(data : Bytes? = nil, validate : Bool = false)
     if d = data
       check_header!(d)
-      @data = d.clone
+      # malloc_atomic is not cleared. The copy fills every byte, so the
+      # document buffer is not scanned for pointers and is not zeroed first.
+      @data = copy_bytes(d)
     else
       @data = empty_document_bytes
     end
@@ -117,10 +127,27 @@ class BSON
     view(builder.to_bson)
   end
 
+  # Specs run without --release and fail if a size estimate drifts from the writer.
+  private def check_estimated_size!(size : Int32) : Nil
+    {% unless flag?(:release) %}
+      if size > 0 && @data.size != size
+        raise Error.new("BSON size estimate #{size} != #{@data.size}")
+      end
+    {% end %}
+  end
+
   private def empty_document_bytes : Bytes
-    bytes = Bytes.new(5)
-    IO::ByteFormat::LittleEndian.encode(5, bytes)
-    bytes
+    Slice.new(EMPTY_RAW.to_unsafe, 5, read_only: true)
+  end
+
+  # Exact-size pointer-free copy. `Bytes#clone` zeroes then copies.
+  private def copy_bytes(data : Bytes) : Bytes
+    copy_bytes(data.size).tap { |dest| dest.copy_from(data) }
+  end
+
+  private def copy_bytes(size : Int) : Bytes
+    ptr = GC.malloc_atomic(size).as(Pointer(UInt8))
+    Slice.new(ptr, size)
   end
 
   # Allocate a BSON instance from an IO
@@ -133,7 +160,7 @@ class BSON
   def initialize(io : IO)
     size = Int32.from_io(io, IO::ByteFormat::LittleEndian)
     Decoder.check_size! size, 5
-    @data = Bytes.new(size)
+    @data = copy_bytes(size)
     IO::ByteFormat::LittleEndian.encode(size, @data[0, 4])
     io.read_fully(@data[4..])
   end
@@ -146,12 +173,14 @@ class BSON
   # }).to_json # => {"hello":"world"}
   # ```
   def initialize(tuple : NamedTuple)
-    builder = Builder.new
+    size = Builder.document_size(tuple)
+    builder = size > 0 ? Builder.new(Builder::Buf.new(size)) : Builder.new
     tuple.each { |key, value|
       # [Performance] Avoid string interpolation overhead
       builder[key.to_s] = value
     }
     @data = builder.to_bson
+    check_estimated_size!(size)
   end
 
   # Allocate a BSON instance from a Hash.
@@ -162,12 +191,14 @@ class BSON
   # }).to_json # => {"hello":"world"}
   # ```
   def initialize(h : Hash)
-    builder = Builder.new
+    size = Builder.document_size(h)
+    builder = size > 0 ? Builder.new(Builder::Buf.new(size)) : Builder.new
     h.each { |key, value|
       # [Performance] Avoid string interpolation overhead
       builder[key.to_s] = value
     }
     @data = builder.to_bson
+    check_estimated_size!(size)
   end
 
   # No-op
@@ -181,12 +212,14 @@ class BSON
   # puts BSON.new([1, 2, 3]).to_json # => [1,2,3]
   # ```
   def initialize(ary : Array)
-    builder = Builder.new
+    size = Builder.document_size(ary)
+    builder = size > 0 ? Builder.new(Builder::Buf.new(size)) : Builder.new
     ary.each_with_index { |value, index|
       str_index = index < 128 ? Builder::STATIC_INDICES.unsafe_fetch(index) : index.to_s
       builder[str_index] = value
     }
     @data = builder.to_bson
+    check_estimated_size!(size)
   end
 
   # Allocate a BSON instance from an instance of BSON::Serializable.
@@ -270,12 +303,21 @@ class BSON
   end
 
   private def append_with_builder(&)
-    io = IO::Memory.new(@data.size)
-    io.write @data[4...-1]
-    builder = Builder.new(io)
+    # Fields only (no header, no trailing NUL). One Buf, spare room for the
+    # new fields, then to_bson adds the header in that same buffer.
+    fields = field_bytes
+    buf = Builder::Buf.new(@data.size + 256)
+    buf.write(fields) unless fields.empty?
+    builder = Builder.new(buf)
     yield builder
     @data = builder.to_bson
     self
+  end
+
+  protected def field_bytes : Bytes
+    n = @data.size
+    return Bytes.empty if n <= 5
+    @data[4, n - 5]
   end
 
   # Append the contents of another BSON instance.
@@ -288,11 +330,13 @@ class BSON
   # ```
   def append(other : BSON)
     # [Performance] Append raw bytes directly, avoiding field decoding/encoding overhead
-    io = IO::Memory.new(@data.size + other.size - 5)
-    io.write @data[4...-1]
-    io.write other.data[4...-1]
-    builder = Builder.new(io)
-    @data = builder.to_bson
+    a = field_bytes
+    b = other.field_bytes
+    total = 5 + a.size + b.size
+    buf = Builder::Buf.new(total)
+    buf.write(a) unless a.empty?
+    buf.write(b) unless b.empty?
+    @data = Builder.new(buf).to_bson
   end
 
   # Clears the BSON instance.

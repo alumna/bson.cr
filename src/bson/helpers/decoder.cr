@@ -16,12 +16,34 @@ class BSON
     private def decode_string!(ptr, size = nil, *, skip_checks = false)
       if size
         str = String.new(ptr, size)
-        raise Error.new("Invalid string is not null-terminated: #{str}") unless skip_checks || (ptr + size).value == 0x00
+        return str if skip_checks
+        raise Error.new("Invalid string is not null-terminated: #{str}") unless (ptr + size).value == 0x00
       else
         str = String.new(ptr)
+        return str if skip_checks
       end
-      raise Error.new("Invalid utf-8 encoding: #{str}") unless skip_checks || str.valid_encoding?
+      # ASCII is valid UTF-8. The word scan is the common path; the full
+      # checker runs only when a byte has the high bit set.
+      unless ascii_bytes?(str.to_unsafe, str.bytesize) || str.valid_encoding?
+        raise Error.new("Invalid utf-8 encoding: #{str}")
+      end
       str
+    end
+
+    @[AlwaysInline]
+    private def ascii_bytes?(ptr : Pointer(UInt8), size : Int) : Bool
+      i = 0
+      limit = size.to_i32
+      while i + 8 <= limit
+        word = (ptr + i).as(Pointer(UInt64)).value
+        return false if (word & 0x8080808080808080_u64) != 0
+        i += 8
+      end
+      while i < limit
+        return false if (ptr + i).value >= 0x80
+        i += 1
+      end
+      true
     end
 
     # [Performance] Parse regex options directly from raw byte pointer without heap string allocations
@@ -46,9 +68,10 @@ class BSON
         # Element code
         code = Element.new((pointer + pos).value)
         pos += 1
-        # Field name
-        key = decode_string!(pointer + pos, skip_checks: skip_checks)
-        pos += key.bytesize + 1
+        # Field name. Intern the deep-tree keys. Other keys still check UTF-8.
+        key_len = LibC.strlen(pointer + pos).to_i32
+        key = read_key!(pointer + pos, key_len, skip_checks)
+        pos += key_len + 1
       end
 
       # Switch on element code
@@ -202,8 +225,27 @@ class BSON
     # Shared interned names for the four deep-tree keys. Literals are interned by
     # Crystal: immutable, shared, fiber-safe. No intern table (no leak).
     @[AlwaysInline]
+    private def read_key!(ptr : Pointer(UInt8), key_len : Int32, skip_checks : Bool) : String
+      if key = interned_key(ptr, key_len)
+        return key
+      end
+      decode_string!(ptr, key_len, skip_checks: skip_checks)
+    end
+
+    @[AlwaysInline]
     private def intern_key!(ptr : Pointer(UInt8), key_len : Int32) : String
+      interned_key(ptr, key_len) || String.new(ptr, key_len)
+    end
+
+    # Literals are interned by Crystal. Deep-tree keys plus the reply fields
+    # every acknowledged command parses (`ok`, `n`, `operationTime`, `$clusterTime`).
+    @[AlwaysInline]
+    private def interned_key(ptr : Pointer(UInt8), key_len : Int32) : String?
       case key_len
+      when 1
+        return "n" if ptr.value === 0x6e_u8
+      when 2
+        return "ok" if LibC.memcmp(ptr, "ok".to_unsafe, 2) == 0
       when 4
         return "left" if LibC.memcmp(ptr, "left".to_unsafe, 4) == 0
       when 5
@@ -212,17 +254,42 @@ class BSON
         return "leftValue" if LibC.memcmp(ptr, "leftValue".to_unsafe, 9) == 0
       when 10
         return "rightValue" if LibC.memcmp(ptr, "rightValue".to_unsafe, 10) == 0
+      when 12
+        return "$clusterTime" if LibC.memcmp(ptr, "$clusterTime".to_unsafe, 12) == 0
+      when 13
+        return "operationTime" if LibC.memcmp(ptr, "operationTime".to_unsafe, 13) == 0
       end
-      String.new(ptr, key_len)
+      nil
     end
 
     # Hash/Array from a document buffer. Nested documents and arrays become
     # Hash/Array directly (no BSON.view, no second walk).
     # Empty BSON is 5 bytes → capacity 0 (Crystal Hash initial_capacity 1..7 allocates 8).
     # Do not pre-size from (size-5)//4 on documents: nested child bytes sit in size.
+    # Field count for a wide document, or 0 when the hash should stay lazy.
+    # Documents under 128 bytes (deep-tree nodes) keep capacity 0: Crystal
+    # grows those to 4 entries with no index table. A full count is O(fields)
+    # because nested documents are skipped by their size prefix.
+    private def wide_capacity(pointer : Pointer(UInt8), size : Int32) : Int32
+      return 0 if size < 128
+      pos = 4
+      n = 0
+      while (pointer + pos).value != 0
+        return 0 if pos >= size
+        n += 1
+        code = Element.new((pointer + pos).value)
+        pos += 1
+        key_len = LibC.strlen(pointer + pos)
+        return 0 if pos + key_len >= size
+        pos += key_len.to_i32 + 1
+        pos = skip_field(code, pointer, pos, max_pos: size)
+      end
+      n >= 8 ? n : 0
+    end
+
     protected def decode_to_h!(pointer : Pointer(UInt8), size : Int32) : Hash(String, RecursiveValue)
       check_size! size, 5
-      hash = Hash(String, RecursiveValue).new(initial_capacity: 0)
+      hash = Hash(String, RecursiveValue).new(initial_capacity: wide_capacity(pointer, size))
       pos = 4
 
       loop do
