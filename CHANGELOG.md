@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-10-07
 
 ### Performance
 * **builder:** `to_bson` finishes in the writer buffer when the header fits, instead of allocating a second copy. Hash, NamedTuple, and Array constructors pre-size that buffer from the value sizes.
